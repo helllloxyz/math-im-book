@@ -4,10 +4,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export TRACE_LOCAL_URL=http://localhost:6016/v1
 
-# activate the local venv if present
-if [[ -f "$SCRIPT_DIR/../.venv/bin/activate" ]]; then
+# Prefer the shared agent environment, falling back to this project's existing
+# local environment when the agent environment has not been created.
+AGENT_VENV_DIR="$HOME/agent/.venv"
+LOCAL_VENV_DIR="$SCRIPT_DIR/../.venv"
+if [[ -x "$AGENT_VENV_DIR/bin/uvicorn" ]]; then
+    VENV_DIR="$AGENT_VENV_DIR"
+else
+    VENV_DIR="$LOCAL_VENV_DIR"
+fi
+
+if [[ -f "$VENV_DIR/bin/activate" ]]; then
     # shellcheck disable=SC1091
-    source "$SCRIPT_DIR/../.venv/bin/activate"
+    source "$VENV_DIR/bin/activate"
 fi
 
 export FASTAPI_ENV=development
@@ -21,7 +30,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Starting backend on port 8016..."
-"$SCRIPT_DIR/../.venv/bin/uvicorn" math_im_book.api.app:create_app --reload --host 0.0.0.0 --port 8016 &
+"$VENV_DIR/bin/uvicorn" math_im_book.api.app:create_app --reload --host 0.0.0.0 --port 8016 &
 BACKEND_PID=$!
 
 echo "Starting frontend (Vite)..."
