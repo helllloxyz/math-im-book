@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "math-im-book"
+version = "0.1.0"
+description = "Milestone A backend for interactive math knowledge evolution"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+  "fastapi>=0.116,<0.117",
+  "google-genai>=1.70,<2.0",
+  "openai>=1.99,<2.0",
+  "pydantic>=2.11,<2.12",
+  "PyYAML>=6.0,<7.0",
+  "uvicorn>=0.35,<0.36",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx[socks]>=0.28,<0.29",
+  "pytest>=8.4,<9.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

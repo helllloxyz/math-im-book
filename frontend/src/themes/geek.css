@@ -1,0 +1,29 @@
+/* Geek Theme (极客工程风) */
+.theme-geek {
+  font-family: "Inter", -apple-system, "PingFang SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  line-height: 1.6;
+  color: var(--color-on-surface);
+  font-size: 17px;
+}
+.theme-geek h1, .theme-geek h2, .theme-geek h3 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: 32px;
+  margin-bottom: 16px;
+  font-size: 1.5em;
+}
+.theme-geek code {
+  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
+  background-color: var(--color-surface-container);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: #eb5757;
+}
+.theme-geek .math-block, .theme-geek .katex-display {
+  background: var(--color-surface-container-lowest);
+  padding: 20px;
+  border-radius: 8px;
+  margin: 24px 0;
+  border-left: 4px solid var(--color-primary);
+}

@@ -1,0 +1,16 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+key.sh
+.superpowers
+data/chats/
+data/knowledge/
+data/credentials/
+downloads/chatbox-main/
+*.patch
+self-evoluation-agent-main/
+mnemovault-main
+.DS_Store
+tree_view.html

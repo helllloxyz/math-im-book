@@ -1,0 +1,109 @@
+{
+  "providers": [
+    {
+      "provider_type": "gemini",
+      "label": "Google Gemini",
+      "default_model": "gemini-2.5-flash",
+      "models": [
+        "gemini-3-flash-preview",
+        "gemini-3-pro-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.0-flash"
+      ],
+      "allow_custom_model": false,
+      "requires_base_url": false,
+      "default_base_url": null
+    },
+    {
+      "provider_type": "openai_compatible",
+      "label": "OpenAI Compatible",
+      "default_model": "deepseek-chat",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "allow_custom_model": true,
+      "requires_base_url": true,
+      "default_base_url": "https://api.openai.com/v1"
+    }
+  ],
+  "provider_catalog": [
+    {
+      "provider_id": "gemini",
+      "provider_type": "gemini",
+      "label": "Gemini",
+      "default_model": "gemini-2.5-flash",
+      "models": [
+        "gemini-3-flash-preview",
+        "gemini-3-pro-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
+      ],
+      "allow_custom_model": false,
+      "requires_base_url": false,
+      "default_base_url": "",
+      "logo_url": "/provider-icons/gemini.svg"
+    },
+    {
+      "provider_id": "deepseek",
+      "provider_type": "openai_compatible",
+      "label": "DeepSeek",
+      "default_model": "deepseek-chat",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "allow_custom_model": true,
+      "requires_base_url": true,
+      "default_base_url": "https://api.deepseek.com/v1",
+      "logo_url": "/provider-icons/deepseek.png"
+    },
+    {
+      "provider_id": "openrouter",
+      "provider_type": "openai_compatible",
+      "label": "OpenRouter",
+      "default_model": "openrouter/auto",
+      "models": [
+        "openrouter/auto",
+        "openrouter/anthropic/claude-3.7-sonnet",
+        "openrouter/google/gemini-2.5-pro",
+        "openrouter/openai/gpt-4.1"
+      ],
+      "allow_custom_model": true,
+      "requires_base_url": true,
+      "default_base_url": "https://openrouter.ai/api/v1",
+      "logo_url": "/provider-icons/openrouter.ico"
+    },
+    {
+      "provider_id": "glm",
+      "provider_type": "openai_compatible",
+      "label": "GLM",
+      "default_model": "glm-4.5-air",
+      "models": [
+        "glm-4.5",
+        "glm-4.5-air",
+        "glm-4-flash"
+      ],
+      "allow_custom_model": true,
+      "requires_base_url": true,
+      "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "logo_url": "/provider-icons/glm.png"
+    }
+  ],
+  "default_options": {
+    "conversation_model": {
+      "provider_id": "deepseek",
+      "provider_type": "openai_compatible",
+      "credential_id": "deepseek",
+      "model": "deepseek-chat"
+    },
+    "utility_model": {
+      "provider_id": "deepseek",
+      "provider_type": "openai_compatible",
+      "credential_id": "deepseek",
+      "model": "deepseek-chat"
+    },
+    "markdown_theme": "academic"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "default_style_id": "default",
+  "styles": [
+    {
+      "style_id": "default",
+      "label": "Default",
+      "description": "Legacy default style placeholder."
+    },
+    {
+      "style_id": "concise",
+      "label": "Concise",
+      "description": "Short answers that stay complete."
+    },
+    {
+      "style_id": "step-by-step",
+      "label": "Step by Step",
+      "description": "Numbered solutions with explicit intermediate steps."
+    },
+    {
+      "style_id": "intuitive",
+      "label": "Intuitive",
+      "description": "Lead with intuition, examples, and high-level structure."
+    },
+    {
+      "style_id": "rigorous",
+      "label": "Rigorous",
+      "description": "Prioritize precise definitions and careful derivations."
+    }
+  ]
+}

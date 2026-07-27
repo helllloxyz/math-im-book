@@ -1,0 +1,28 @@
+/* Reading Theme (温润阅读风) */
+.theme-reading {
+  font-family: "Charter", "Bitstream Charter", "LXGW WenKai", "Kaiti SC", "STKaiti", serif;
+  line-height: 1.8;
+  color: var(--color-on-surface);
+  letter-spacing: 0.02em; 
+  font-size: 19px;
+}
+.theme-reading p {
+  text-align: justify;
+}
+.theme-reading h1, .theme-reading h2, .theme-reading h3 {
+  font-weight: bold;
+  margin-top: 2em;
+  margin-bottom: 1em;
+}
+.theme-reading code {
+  font-family: "Menlo", "STHeiti", monospace;
+  background-color: #fdf5e6;
+  padding: 0.2em 0.4em;
+  color: #8b4513;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.theme-reading .math-block, .theme-reading .katex-display {
+  margin: 1.5em 0;
+  opacity: 0.95;
+}

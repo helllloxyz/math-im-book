@@ -1,0 +1,26 @@
+/* Academic Theme (严肃学术风) */
+.theme-academic {
+  font-family: "STIX Two Text", "Source Han Serif SC", "Source Han Serif", "Noto Serif CJK SC", "STSong", serif;
+  line-height: 1.7;
+  color: var(--color-on-surface);
+  font-size: 18px;
+}
+.theme-academic h1, .theme-academic h2, .theme-academic h3 {
+  font-family: "Helvetica Neue", "Source Han Sans SC", sans-serif;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-outline-variant);
+  padding-bottom: 0.3em;
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+.theme-academic code {
+  font-family: "Fira Code", "Menlo", "Courier New", monospace;
+  background-color: var(--color-surface-container);
+  padding: 0.2em 0.4em;
+  border-radius: 6px;
+  font-size: 85%;
+}
+.theme-academic .math-block, .theme-academic .katex-display {
+  margin: 2em 0;
+  text-align: center;
+}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>排版方案对比：温润阅读风</title>
+    <!-- KaTeX -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+    <style>
+        body {
+            background-color: #fffaf0; /* 纸张米黄色 */
+            display: flex;
+            justify-content: center;
+            padding: 40px 20px;
+            margin: 0;
+        }
+        .container {
+            background: #fffdf9;
+            padding: 60px;
+            max-width: 800px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.03);
+            border-radius: 8px;
+            border: 1px solid #f0e6d2;
+        }
+        /* 温润阅读风 CSS 配置 */
+        .markdown-body {
+            font-family: "Charter", "Bitstream Charter", "LXGW WenKai", "Kaiti SC", "STKaiti", serif;
+            line-height: 1.8;
+            color: #2c3e50;
+            letter-spacing: 0.02em; 
+            font-size: 19px;
+        }
+        .markdown-body p {
+            text-align: justify;
+        }
+        .markdown-body h3 {
+            font-weight: bold;
+            color: #1a1a1a;
+            margin-top: 2em;
+            margin-bottom: 1em;
+        }
+        .markdown-body code {
+            font-family: "Menlo", "STHeiti", monospace;
+            background-color: #fdf5e6;
+            padding: 0.2em 0.4em;
+            color: #8b4513;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .math-block {
+            margin: 1.5em 0;
+            opacity: 0.95;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="markdown-body">
+            <h3>1. 流形与外微分 (Manifolds and Exterior Derivatives)</h3>
+            <p>在微分几何中，广义斯托克斯定理 (Stokes' Theorem) 建立在微分流形 \(M\) 和外微分算子 \(d\) 的基础之上。假设 \(\omega\) 是一个紧支撑的 \((k-1)\)-形式 (differential form)，则有：</p>
+            
+            <div class="math-block">
+                \[\int_{\partial M} \omega = \int_{M} d\omega\]
+            </div>
+
+            <p>其中 \(\partial M\) 表示流形的边界。在实际的计算中，我们需要通过局部坐标系将张量场展开。例如，定义一个对应的 Python 虚拟环境配置如下：</p>
+            
+            <p><code>python -m venv .env && source .env/bin/activate</code></p>
+        </div>
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            renderMathInElement(document.body, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '\\[', right: '\\]', display: true},
+                    {left: '$', right: '$', display: false},
+                    {left: '\\(', right: '\\)', display: false}
+                ]
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "default_strategy_agent_id": "top-down",
+  "agents": [
+    {
+      "strategy_agent_id": "top-down",
+      "label": "Top Down",
+      "description": "Start from the high-level structure."
+    },
+    {
+      "strategy_agent_id": "raw",
+      "label": "Raw",
+      "description": "Use the raw question text with minimal shaping."
+    }
+  ]
+}
