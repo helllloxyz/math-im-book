@@ -28,7 +28,7 @@ const fallbackProviderCatalog: ProviderCatalogItem[] = [
     label: 'Gemini',
     default_model: 'gemini-2.5-flash',
     models: ['gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
-    allow_custom_model: false,
+    allow_custom_model: true,
     requires_base_url: false,
     default_base_url: '',
     logo_url: '/provider-icons/gemini.svg',

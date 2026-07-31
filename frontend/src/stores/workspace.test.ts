@@ -335,7 +335,7 @@ describe('workspace store provider configuration', () => {
 
     expect(store.selectedProviderProfile).toEqual({
       provider_type: 'openai_compatible',
-      model: 'gpt-5.1',
+      model: 'other-model',
       credential_id: 'openai-main',
       base_url: 'https://example.com/v1',
     });

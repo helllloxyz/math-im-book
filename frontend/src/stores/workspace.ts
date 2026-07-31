@@ -93,10 +93,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       
       // Determine models to show
       const configuredModels = Array.isArray(credential.models) && credential.models.length
-        ? provider.allow_custom_model
-          ? credential.models
-          : credential.models.filter((model) => provider.models.includes(model))
-        : provider.models;
+        ? credential.models
+        : credential.default_model
+          ? [credential.default_model]
+          : provider.models;
         
       if (!configuredModels.length) continue;
 
@@ -456,9 +456,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     );
     if (!option) return null;
 
-    const model = option.models.includes(profile.model)
-      ? profile.model
-      : option.default_model;
     const credential_id =
       credentials.value.some(
         (credential) =>
@@ -472,7 +469,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return {
       ...(option.provider_id ? { provider_id: option.provider_id } : {}),
       provider_type: option.provider_type,
-      model,
+      model: profile.model,
       credential_id,
       ...(option.requires_base_url
         ? {
@@ -489,8 +486,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const defaultModel =
       conversationDefault &&
       ((conversationDefault.provider_id && conversationDefault.provider_id === option.provider_id) ||
-        conversationDefault.provider_type === option.provider_type) &&
-      option.models.includes(conversationDefault.model)
+        conversationDefault.provider_type === option.provider_type)
         ? conversationDefault.model
         : option.default_model;
     const credentialId =

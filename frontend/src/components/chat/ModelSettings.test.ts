@@ -92,4 +92,62 @@ describe('ModelSettings', () => {
     expect(wrapper.text()).toContain('deepseek-chat');
     expect(wrapper.text()).not.toContain('gpt-5.1');
   });
+
+  it('lists configured model names even when they are absent from the provider catalog', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    store.providerCatalog = [
+      {
+        provider_id: 'gemini',
+        provider_type: 'gemini',
+        label: 'Gemini',
+        default_model: 'gemini-2.5-flash',
+        models: ['gemini-2.5-flash'],
+        allow_custom_model: false,
+        requires_base_url: false,
+        default_base_url: '',
+      },
+      {
+        provider_id: 'deepseek',
+        provider_type: 'openai_compatible',
+        label: 'DeepSeek',
+        default_model: 'deepseek-chat',
+        models: ['deepseek-chat'],
+        allow_custom_model: false,
+        requires_base_url: true,
+        default_base_url: 'https://api.deepseek.com/v1',
+      },
+    ] as any;
+    store.credentials = [
+      {
+        credential_id: 'gemini',
+        provider_type: 'gemini',
+        provider_id: 'gemini',
+        default_model: 'gemini-3.6-flash',
+        models: ['gemini-3.6-flash'],
+        has_headers: false,
+      },
+      {
+        credential_id: 'deepseek',
+        provider_type: 'openai_compatible',
+        provider_id: 'deepseek',
+        default_model: 'deepseek-v4',
+        models: ['deepseek-v4'],
+        base_url: 'https://api.deepseek.com/v1',
+        has_headers: false,
+      },
+    ] as any;
+
+    const wrapper = mount(ModelSettings, {
+      global: {
+        plugins: [pinia],
+      },
+    });
+
+    await wrapper.get('button[title="Model Settings"]').trigger('click');
+
+    expect(wrapper.text()).toContain('Gemini - gemini-3.6-flash (gemini)');
+    expect(wrapper.text()).toContain('DeepSeek - deepseek-v4 (deepseek)');
+  });
 });
