@@ -12,10 +12,14 @@ vi.mock('../services/api', () => ({
     getOutline: vi.fn(),
     getSessionExplorer: vi.fn(),
     getKnowledgeExplorer: vi.fn(),
+    organizeKnowledgeExplorer: vi.fn(),
     createExplorerFolder: vi.fn(),
+    renameExplorerFolder: vi.fn(),
+    deleteExplorerFolder: vi.fn(),
     moveExplorerItem: vi.fn(),
     updateExplorerItemIcon: vi.fn(),
     getNode: vi.fn(),
+    updateKnowledgeNode: vi.fn(),
     getKnowledgeJob: vi.fn(),
     compileSuggestedDrafts: vi.fn(),
     compileSelectionKnowledge: vi.fn(),
@@ -190,6 +194,70 @@ describe('workspace store provider configuration', () => {
       sort_order: 1000,
     });
     expect(api.getSessionExplorer).toHaveBeenCalledTimes(2);
+  });
+
+  it('renames and deletes folders while refreshing the matching scope', async () => {
+    vi.mocked(api.renameExplorerFolder).mockResolvedValue({
+      folder_id: 'folder-1',
+      scope: 'knowledge',
+      name: 'Foundations',
+    } as any);
+    vi.mocked(api.deleteExplorerFolder).mockResolvedValue(undefined);
+    vi.mocked(api.getKnowledgeExplorer).mockResolvedValue({ scope: 'knowledge', tree: [] });
+    const store = useWorkspaceStore();
+
+    await store.renameExplorerFolder('folder-1', 'Foundations');
+    await store.deleteExplorerFolder('knowledge', 'folder-1');
+
+    expect(api.renameExplorerFolder).toHaveBeenCalledWith('folder-1', 'Foundations');
+    expect(api.deleteExplorerFolder).toHaveBeenCalledWith('folder-1');
+    expect(api.getKnowledgeExplorer).toHaveBeenCalledTimes(2);
+    expect(store.explorerBusy).toBe(false);
+  });
+
+  it('organizes knowledge notes and refreshes the library tree', async () => {
+    vi.mocked(api.organizeKnowledgeExplorer).mockResolvedValue({
+      scope: 'knowledge',
+      organized_count: 3,
+      folders_created: 2,
+    });
+    vi.mocked(api.getKnowledgeExplorer).mockResolvedValue({ scope: 'knowledge', tree: [] });
+    const store = useWorkspaceStore();
+
+    const result = await store.organizeKnowledgeExplorer();
+
+    expect(result.organized_count).toBe(3);
+    expect(api.getKnowledgeExplorer).toHaveBeenCalledTimes(1);
+    expect(store.explorerBusy).toBe(false);
+  });
+
+  it('renames a knowledge note without changing its stable id', async () => {
+    vi.mocked(api.updateKnowledgeNode).mockResolvedValue({
+      id: 'linear-map',
+      title: 'Linear transformations',
+    } as any);
+    vi.mocked(api.getKnowledgeExplorer).mockResolvedValue({ scope: 'knowledge', tree: [] });
+    const store = useWorkspaceStore();
+    store.currentNode = { id: 'linear-map', title: 'Linear Map' } as any;
+    store.outline = [{ id: 'linear-map', title: 'Linear Map' }] as any;
+
+    await store.renameKnowledgeNode('linear-map', 'Linear transformations');
+
+    expect(api.updateKnowledgeNode).toHaveBeenCalledWith('linear-map', {
+      title: 'Linear transformations',
+    });
+    expect(store.currentNode?.id).toBe('linear-map');
+    expect(store.currentNode?.title).toBe('Linear transformations');
+    expect(store.outline[0].title).toBe('Linear transformations');
+  });
+
+  it('always clears explorer busy state when a folder action fails', async () => {
+    vi.mocked(api.createExplorerFolder).mockRejectedValue(new Error('duplicate'));
+    const store = useWorkspaceStore();
+
+    await expect(store.createExplorerFolder('sessions', 'Course')).rejects.toThrow('duplicate');
+
+    expect(store.explorerBusy).toBe(false);
   });
 
   it('updates explorer item icons and refreshes the matching tree', async () => {
@@ -724,6 +792,50 @@ describe('workspace store provider configuration', () => {
         onChunk: expect.any(Function),
       })
     );
+  });
+
+  it('places a newly created conversation in the selected folder', async () => {
+    vi.mocked(api.askStream).mockResolvedValue({
+      action: {
+        action_type: 'answer',
+        selected_node_ids: [],
+        draft_requests: [],
+        user_visible_reason: 'done',
+      },
+      answer: {
+        summary: 'summary',
+        detail: 'detail',
+        references: [],
+        symbols: {},
+        symbol_conflicts: [],
+        assistant_text: 'assistant reply',
+      },
+      drafts: [],
+      created_node_ids: [],
+      session: {
+        session_id: 'chat-in-course',
+        branch: {
+          active_node_ids: [],
+          summary_node_ids: [],
+          active_symbols: {},
+        },
+        messages: [],
+      },
+    } as any);
+    vi.mocked(api.moveExplorerItem).mockResolvedValue({ item_id: 'chat-in-course' } as any);
+    vi.mocked(api.getSessions).mockResolvedValue([]);
+    vi.mocked(api.getSessionExplorer).mockResolvedValue({ scope: 'sessions', tree: [] });
+
+    const store = useWorkspaceStore();
+    store.newSession('folder-course');
+
+    await store.ask('Start inside this course.');
+
+    expect(api.moveExplorerItem).toHaveBeenCalledWith('session', 'chat-in-course', {
+      folder_id: 'folder-course',
+      sort_order: 1000,
+    });
+    expect(store.newSessionFolderId).toBeNull();
   });
 
   it('polls knowledge jobs and updates the latest assistant anchors in place', async () => {
@@ -1766,6 +1878,7 @@ describe('workspace store provider configuration', () => {
   });
 
   it('updates the current session icon in place', async () => {
+    vi.mocked(api.getSessionExplorer).mockResolvedValue({ scope: 'sessions', tree: [] });
     vi.mocked(api.updateSession).mockResolvedValue({
       session_id: 'chat-1',
       title: 'Operator Theory',
@@ -1811,6 +1924,33 @@ describe('workspace store provider configuration', () => {
     expect(api.updateSession).toHaveBeenCalledWith('chat-1', { icon: 'wave' });
     expect(store.currentSession?.icon).toBe('wave');
     expect(store.sessions[0]?.icon).toBe('wave');
+  });
+
+  it('renames the current session and refreshes the explorer title', async () => {
+    vi.mocked(api.getSessionExplorer).mockResolvedValue({ scope: 'sessions', tree: [] });
+    vi.mocked(api.updateSession).mockResolvedValue({
+      session_id: 'chat-1',
+      title: 'Spectral foundations',
+      icon: 'sigma',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [],
+    } as any);
+    const store = useWorkspaceStore();
+    store.currentSession = {
+      session_id: 'chat-1',
+      title: 'Old title',
+      icon: 'sigma',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [],
+    } as any;
+    store.sessions = [{ session_id: 'chat-1', title: 'Old title' }] as any;
+
+    await store.renameSession('chat-1', 'Spectral foundations');
+
+    expect(api.updateSession).toHaveBeenCalledWith('chat-1', { title: 'Spectral foundations' });
+    expect(store.currentSession?.title).toBe('Spectral foundations');
+    expect(store.sessions[0]?.title).toBe('Spectral foundations');
+    expect(api.getSessionExplorer).toHaveBeenCalledTimes(1);
   });
 
   it('fetches agent state for the current session', async () => {

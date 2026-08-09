@@ -35,6 +35,36 @@ def test_outline_endpoint_lists_knowledge_nodes(tmp_path) -> None:
     assert response.json()["nodes"][0]["id"] == "vector-space"
 
 
+def test_patch_node_renames_title_without_changing_stable_id_or_content(tmp_path) -> None:
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    repository.save_node(
+        KnowledgeNode(
+            id="vector-space",
+            title="Vector Space",
+            type="definition",
+            summary="A set with vector operations.",
+            detail="Detailed definition.",
+            parent_id=None,
+            source="chat:1",
+            references=[NodeReference(node_id="field", reason="Uses scalars")],
+            status="ready",
+        )
+    )
+    client = TestClient(create_app(repository=repository))
+
+    response = client.patch(
+        "/api/nodes/vector-space",
+        json={"title": "Linear Space"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["node"]["id"] == "vector-space"
+    assert response.json()["node"]["title"] == "Linear Space"
+    persisted = repository.get_node("vector-space")
+    assert persisted.detail == "Detailed definition."
+    assert persisted.references[0].node_id == "field"
+
+
 def test_node_endpoint_returns_node_detail(tmp_path) -> None:
     repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
     repository.save_node(

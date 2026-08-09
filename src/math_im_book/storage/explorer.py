@@ -238,6 +238,53 @@ class ExplorerStore:
             return None
         return self._location_from_dict(location)
 
+    def find_folder(
+        self,
+        *,
+        scope: str,
+        name: str,
+        parent_folder_id: str | None = None,
+    ) -> ExplorerFolder | None:
+        scope = self._validate_scope(scope)
+        name = self._validate_folder_name(name)
+        payload = self.load_payload()
+        for folder in payload["folders"]:
+            if (
+                folder["scope"] == scope
+                and folder["name"] == name
+                and folder["parent_folder_id"] == parent_folder_id
+            ):
+                return self._folder_from_dict(folder)
+        return None
+
+    def remove_item(self, *, item_type: str, item_id: str) -> bool:
+        """Remove Explorer-only metadata after the source item is deleted.
+
+        The Explorer does not own conversations or knowledge files, but stale
+        locations can otherwise keep an empty folder from being deleted.
+        """
+        item_type = self._validate_item_type(item_type)
+        payload = self.load_payload()
+        original_location_count = len(payload["locations"])
+        original_icon_count = len(payload["item_icons"])
+        payload["locations"] = [
+            item
+            for item in payload["locations"]
+            if not self._same_item_location(item, item_type, item_id)
+        ]
+        payload["item_icons"] = [
+            item
+            for item in payload["item_icons"]
+            if not self._same_item_location(item, item_type, item_id)
+        ]
+        removed = (
+            len(payload["locations"]) != original_location_count
+            or len(payload["item_icons"]) != original_icon_count
+        )
+        if removed:
+            self._save_payload(payload)
+        return removed
+
     def set_item_icon(self, *, item_type: str, item_id: str, icon: str) -> dict[str, Any]:
         item_type = self._validate_item_type(item_type)
         icon = self._validate_icon(icon)

@@ -375,6 +375,12 @@ class NodeResponseSchema(BaseModel):
     node: KnowledgeNodeSchema
 
 
+class KnowledgeNodeUpdateSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
 class OutlineNodeSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -478,6 +484,14 @@ class ExplorerItemIconResponseSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     icon: dict[str, object]
+
+
+class ExplorerOrganizeResponseSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["knowledge"]
+    organized_count: int = 0
+    folders_created: int = 0
 
 
 class SessionMessageSchema(BaseModel):

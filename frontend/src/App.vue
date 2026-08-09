@@ -34,54 +34,40 @@
         </button>
       </div>
 
-      <button class="new-inquiry-button" type="button" @click="startNewInquiry">
-        <span class="material-symbols-outlined" aria-hidden="true">add</span>
-        <span>New inquiry</span>
-        <kbd>N</kbd>
-      </button>
-
       <nav class="workspace-switcher" aria-label="Workspace views">
         <button
           type="button"
           :class="{ active: activeTab === 'chat' || activeTab === 'agent' }"
           @click="showConversations"
         >
-          <span class="material-symbols-outlined" aria-hidden="true">forum</span>
-          Conversations
+          <span class="workspace-switcher-icon" aria-hidden="true">
+            <span class="material-symbols-outlined">chat_bubble</span>
+          </span>
+          <span>Conversations</span>
         </button>
         <button
           type="button"
           :class="{ active: activeTab === 'book' }"
           @click="showLibrary"
         >
-          <span class="material-symbols-outlined" aria-hidden="true">library_books</span>
-          Library
+          <span class="workspace-switcher-icon" aria-hidden="true">
+            <span class="material-symbols-outlined">book_2</span>
+          </span>
+          <span>Library</span>
         </button>
       </nav>
 
       <div class="sidebar-content">
         <div v-if="activeTab === 'chat' || activeTab === 'agent'" class="sidebar-section">
           <SessionTree />
-          <div v-if="!sessions.length" class="sidebar-empty">
-            <span class="material-symbols-outlined" aria-hidden="true">chat_bubble_outline</span>
-            <p>Your conversations will collect here.</p>
-          </div>
         </div>
 
         <div v-else class="sidebar-section">
           <BookOutline />
-          <div v-if="!outline.length" class="sidebar-empty">
-            <span class="material-symbols-outlined" aria-hidden="true">auto_stories</span>
-            <p>Knowledge notes appear as you explore.</p>
-          </div>
         </div>
       </div>
 
       <div class="sidebar-footer">
-        <div class="system-status">
-          <span class="status-dot"></span>
-          <span>Local workspace</span>
-        </div>
         <GlobalSettings />
       </div>
     </aside>
@@ -190,7 +176,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import SessionTree from './components/explorer/SessionTree.vue'
 import BookOutline from './components/explorer/BookOutline.vue'
@@ -204,7 +190,7 @@ import SelectionActionMenu from './components/common/SelectionActionMenu.vue'
 import { useWorkspaceStore } from './stores/workspace'
 
 const store = useWorkspaceStore()
-const { sessions, outline, currentSession, currentNode, loading, activeTab } = storeToRefs(store)
+const { currentSession, currentNode, loading, activeTab } = storeToRefs(store)
 
 const assistantNames = ['Gauss', 'Noether', 'Euler', 'Riemann', 'Hypatia', 'Newton', 'Lagrange', 'Fourier']
 
@@ -248,6 +234,15 @@ watch(
   scrollToBottom
 )
 
+const handleGlobalShortcut = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName || '')) return
+  if (event.key.toLocaleLowerCase() === 'n' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault()
+    startNewInquiry()
+  }
+}
+
 onMounted(() => {
   store.fetchProviderOptions()
   store.fetchStrategyAgents()
@@ -255,7 +250,10 @@ onMounted(() => {
   store.fetchSessions()
   store.fetchOutline()
   store.fetchCredentials()
+  document.addEventListener('keydown', handleGlobalShortcut)
 })
+
+onBeforeUnmount(() => document.removeEventListener('keydown', handleGlobalShortcut))
 
 const showConversations = () => {
   activeTab.value = 'chat'

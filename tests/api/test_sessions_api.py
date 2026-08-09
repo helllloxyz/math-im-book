@@ -603,6 +603,42 @@ def test_patch_session_endpoint_updates_icon(tmp_path) -> None:
     assert updated.icon == "atom"
 
 
+def test_delete_session_cleans_explorer_metadata(tmp_path) -> None:
+    session_store = FileSessionStore(tmp_path / "sessions")
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    session_store.save_record(SessionRecord(session_id="chat-delete", title="Delete me"))
+    folder = explorer_store.create_folder(
+        scope="sessions",
+        name="Temporary",
+        parent_folder_id=None,
+    )
+    explorer_store.move_item(
+        item_type="session",
+        item_id="chat-delete",
+        folder_id=folder.folder_id,
+        sort_order=1000,
+        location_source="user",
+    )
+    explorer_store.set_item_icon(
+        item_type="session",
+        item_id="chat-delete",
+        icon="wave",
+    )
+    client = TestClient(
+        create_app(
+            session_store=session_store,
+            explorer_store=explorer_store,
+        )
+    )
+
+    response = client.delete("/api/sessions/chat-delete")
+
+    assert response.status_code == 204
+    assert explorer_store.find_location("session", "chat-delete") is None
+    assert explorer_store.load_payload()["item_icons"] == []
+    assert client.delete(f"/api/explorer/folders/{folder.folder_id}").status_code == 204
+
+
 def test_forked_session_inherits_parent_explorer_folder(tmp_path) -> None:
     knowledge_repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
     knowledge_repository.save_node(

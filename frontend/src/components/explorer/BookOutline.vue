@@ -2,12 +2,21 @@
   <ExplorerTree
     :tree="knowledgeExplorerTree"
     :current-item-id="currentNode?.id || null"
-    title="Book Outline"
-    root-action-title="New knowledge folder"
+    title="Library"
+    primary-action-title="Organize Library"
+    primary-action-icon="auto_awesome"
+    search-placeholder="Search notes and concepts"
+    empty-text="Knowledge notes will appear here as useful ideas emerge from conversations."
+    :busy="explorerBusy"
     editable-item-icons
+    can-rename-items
     @select-item="handleSelectItem"
     @create-folder="handleCreateFolder"
+    @rename-folder="handleRenameFolder"
+    @delete-folder="handleDeleteFolder"
     @move-item="handleMoveItem"
+    @rename-item="handleRenameItem"
+    @primary-action="handleOrganizeLibrary"
     @update-item-icon="handleUpdateItemIcon"
   />
 </template>
@@ -19,7 +28,14 @@ import { useWorkspaceStore } from '../../stores/workspace';
 import type { ExplorerItemType } from '../../services/api';
 
 const store = useWorkspaceStore();
-const { knowledgeExplorerTree, currentNode } = storeToRefs(store);
+const { knowledgeExplorerTree, currentNode, explorerBusy } = storeToRefs(store);
+const runAction = async (action: () => Promise<void>) => {
+  try {
+    await action();
+  } catch (error) {
+    console.error('Explorer action failed:', error);
+  }
+};
 
 const handleSelectItem = (itemType: ExplorerItemType, itemId: string) => {
   if (itemType === 'knowledge_node') {
@@ -27,10 +43,30 @@ const handleSelectItem = (itemType: ExplorerItemType, itemId: string) => {
   }
 };
 
-const handleCreateFolder = async (parentFolderId: string | null) => {
-  const name = window.prompt('Folder name');
-  if (!name) return;
-  await store.createExplorerFolder('knowledge', name, parentFolderId);
+const handleOrganizeLibrary = async () => {
+  try {
+    await store.organizeKnowledgeExplorer();
+  } catch (error) {
+    console.error('Could not organize the library:', error);
+  }
+};
+
+const handleCreateFolder = async (parentFolderId: string | null, name: string) => {
+  await runAction(() =>
+    store.createExplorerFolder('knowledge', name, parentFolderId)
+  );
+};
+
+const handleRenameFolder = async (folderId: string, name: string) => {
+  await runAction(() =>
+    store.renameExplorerFolder(folderId, name)
+  );
+};
+
+const handleDeleteFolder = async (folderId: string) => {
+  await runAction(() =>
+    store.deleteExplorerFolder('knowledge', folderId)
+  );
 };
 
 const handleMoveItem = async (
@@ -39,7 +75,20 @@ const handleMoveItem = async (
   folderId: string | null
 ) => {
   if (itemType !== 'knowledge_node') return;
-  await store.moveExplorerItem('knowledge_node', itemId, folderId);
+  await runAction(() =>
+    store.moveExplorerItem('knowledge_node', itemId, folderId)
+  );
+};
+
+const handleRenameItem = async (
+  itemType: ExplorerItemType,
+  itemId: string,
+  name: string
+) => {
+  if (itemType !== 'knowledge_node') return;
+  await runAction(() =>
+    store.renameKnowledgeNode(itemId, name)
+  );
 };
 
 const handleUpdateItemIcon = async (
@@ -47,6 +96,8 @@ const handleUpdateItemIcon = async (
   itemId: string,
   icon: string
 ) => {
-  await store.updateExplorerItemIcon(itemType, itemId, icon);
+  await runAction(() =>
+    store.updateExplorerItemIcon(itemType, itemId, icon)
+  );
 };
 </script>

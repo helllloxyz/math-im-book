@@ -1,5 +1,5 @@
 <template>
-  <div class="explorer-tree">
+  <section class="explorer-tree" :aria-label="title || 'Explorer'">
     <div
       class="explorer-tree-header"
       :class="{ 'explorer-tree-drop-target': dragOverRoot }"
@@ -9,413 +9,479 @@
       @dragleave="dragOverRoot = false"
       @drop.prevent="handleRootDrop"
     >
-      <h3 v-if="title" class="explorer-tree-title">{{ title }}</h3>
-      <div class="explorer-tree-header-actions">
+      <button
+        v-if="title"
+        type="button"
+        class="explorer-tree-scope"
+        :class="{ 'is-root-active': !selectedFolderId }"
+        data-explorer-root-select
+        title="Select top level"
+        @click="selectedFolderId = null"
+      >
+        <h3 class="explorer-tree-title">{{ title }}</h3>
+      </button>
+      <div class="explorer-tree-header-actions" @click.stop>
         <button
-          v-if="primaryActionTitle"
           type="button"
-          class="explorer-tree-header-action"
-          data-explorer-primary-action
-          :title="primaryActionTitle"
-          :aria-label="primaryActionTitle"
-          @click="emit('primary-action')"
+          class="explorer-tree-header-action explorer-create-trigger"
+          data-explorer-create-menu
+          :title="`Add to ${selectedFolderName || title || 'top level'}`"
+          :aria-label="`Create in ${selectedFolderName || title || 'top level'}`"
+          aria-haspopup="menu"
+          :aria-expanded="createMenuOpen ? 'true' : 'false'"
+          @click="createMenuOpen = !createMenuOpen"
         >
-          <span class="material-symbols-outlined text-[16px]">{{ primaryActionIcon || 'add_box' }}</span>
+          <span class="material-symbols-outlined" aria-hidden="true">add</span>
         </button>
-        <button
-          type="button"
-          class="explorer-tree-header-action"
-          data-explorer-create-root-folder
-          :title="rootActionTitle || 'New folder'"
-          :aria-label="rootActionTitle || 'New folder'"
-          @click="emit('create-folder', null)"
-        >
-          <span class="material-symbols-outlined text-[16px]">create_new_folder</span>
-        </button>
+        <div v-if="createMenuOpen" class="explorer-create-menu explorer-tree-menu" role="menu">
+          <button
+            v-if="primaryActionTitle"
+            type="button"
+            role="menuitem"
+            data-explorer-primary-action
+            @click="runPrimaryAction"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">{{ primaryActionIcon || 'chat_bubble' }}</span>
+            {{ primaryActionTitle }}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-explorer-create-folder
+            @click="openCreateFolder(selectedFolderId)"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">create_new_folder</span>
+            New folder
+          </button>
+        </div>
       </div>
     </div>
-    <ExplorerTreeRow
-      v-for="node in tree"
-      :key="nodeKey(node)"
-      :node="node"
-      :depth="0"
-      :current-item-id="currentItemId"
-      :editable-session-icons="editableSessionIcons"
-      :editable-item-icons="editableItemIcons"
-      @select-item="handleSelectItem"
-      @create-folder="handleCreateFolder"
-      @move-item="handleMoveItem"
-      @update-session-icon="handleUpdateSessionIcon"
-      @update-item-icon="handleUpdateItemIcon"
-    />
-  </div>
+
+    <label class="explorer-search">
+      <span class="material-symbols-outlined" aria-hidden="true">search</span>
+      <input
+        v-model="query"
+        type="search"
+        :placeholder="searchPlaceholder || 'Search titles and notes'"
+        :aria-label="searchPlaceholder || 'Search titles and notes'"
+        data-explorer-search
+      />
+      <button v-if="query" type="button" aria-label="Clear search" @click="query = ''">
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+      </button>
+      <kbd v-else>/</kbd>
+    </label>
+
+    <div v-if="filteredTree.length" class="explorer-tree-list">
+      <ExplorerTreeRow
+        v-for="node in filteredTree"
+        :key="nodeKey(node)"
+        :node="node"
+        :depth="0"
+        :current-item-id="currentItemId"
+        :selected-folder-id="selectedFolderId"
+        :force-expanded="Boolean(normalizedQuery)"
+        :editable-session-icons="editableSessionIcons"
+        :editable-item-icons="editableItemIcons"
+        :can-rename-items="canRenameItems"
+        :can-delete-items="canDeleteItems"
+        @select-item="(...args) => emit('select-item', ...args)"
+        @move-item="(...args) => emit('move-item', ...args)"
+        @select-folder="selectFolder"
+        @request-rename-folder="openRenameFolder"
+        @request-delete-folder="openDeleteFolder"
+        @request-move-item="openMoveItem"
+        @request-rename-item="openRenameItem"
+        @request-delete-item="openDeleteItem"
+        @update-session-icon="(...args) => emit('update-session-icon', ...args)"
+        @update-item-icon="(...args) => emit('update-item-icon', ...args)"
+      />
+    </div>
+
+    <div v-else class="explorer-zero-state" data-explorer-empty>
+      <span class="material-symbols-outlined" aria-hidden="true">
+        {{ normalizedQuery ? 'search_off' : 'inventory_2' }}
+      </span>
+      <p>{{ normalizedQuery ? `No results for “${query.trim()}”` : (emptyText || 'Nothing here yet.') }}</p>
+      <button v-if="normalizedQuery" type="button" @click="query = ''">Clear search</button>
+    </div>
+
+    <Teleport to="body">
+      <div
+        v-if="dialog"
+        class="explorer-dialog-backdrop"
+        role="presentation"
+        @mousedown.self="closeDialog"
+      >
+      <form
+        v-if="dialog.kind === 'name'"
+        class="explorer-dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="`${dialog.mode}-title`"
+        @submit.prevent="submitNameDialog"
+      >
+        <div class="explorer-dialog-icon" aria-hidden="true">
+          <span class="material-symbols-outlined">{{ dialog.mode === 'create-folder' ? 'create_new_folder' : 'edit' }}</span>
+        </div>
+        <div>
+          <p class="explorer-dialog-kicker">Organize workspace</p>
+          <h4 :id="`${dialog.mode}-title`">{{ nameDialogTitle }}</h4>
+        </div>
+        <label>
+          <span>Name</span>
+          <input
+            ref="nameInput"
+            v-model="draftName"
+            type="text"
+            maxlength="120"
+            autocomplete="off"
+            data-explorer-name-input
+          />
+        </label>
+        <div class="explorer-dialog-actions">
+          <button type="button" class="secondary" @click="closeDialog">Cancel</button>
+          <button type="submit" class="primary" :disabled="busy || !draftName.trim()">
+            {{ busy ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </form>
+
+      <form
+        v-else-if="dialog.kind === 'move'"
+        class="explorer-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="move-item-title"
+        @submit.prevent="submitMoveDialog"
+      >
+        <div class="explorer-dialog-icon" aria-hidden="true">
+          <span class="material-symbols-outlined">drive_file_move</span>
+        </div>
+        <div>
+          <p class="explorer-dialog-kicker">Organize workspace</p>
+          <h4 id="move-item-title">Move “{{ dialog.title }}”</h4>
+        </div>
+        <label>
+          <span>Destination</span>
+          <select v-model="moveDestination" data-explorer-move-select>
+            <option value="">Top level</option>
+            <option v-for="folder in folderOptions" :key="folder.id" :value="folder.id">
+              {{ folder.path }}
+            </option>
+          </select>
+        </label>
+        <p class="explorer-dialog-note">You can also drag items directly onto a folder.</p>
+        <div class="explorer-dialog-actions">
+          <button type="button" class="secondary" @click="closeDialog">Cancel</button>
+          <button type="submit" class="primary" :disabled="busy">
+            {{ busy ? 'Moving…' : 'Move' }}
+          </button>
+        </div>
+      </form>
+
+      <div
+        v-else
+        class="explorer-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-resource-title"
+      >
+        <div class="explorer-dialog-icon danger" aria-hidden="true">
+          <span class="material-symbols-outlined">delete_outline</span>
+        </div>
+        <div>
+          <p class="explorer-dialog-kicker">Confirm action</p>
+          <h4 id="delete-resource-title">Delete “{{ dialog.title }}”?</h4>
+        </div>
+        <p v-if="dialog.kind === 'delete-folder' && (dialog.itemCount || dialog.folderCount)" class="explorer-dialog-warning">
+          This folder still contains
+          <template v-if="dialog.itemCount">{{ dialog.itemCount }} item{{ dialog.itemCount === 1 ? '' : 's' }}</template>
+          <template v-if="dialog.itemCount && dialog.folderCount"> and </template>
+          <template v-if="dialog.folderCount">{{ dialog.folderCount }} subfolder{{ dialog.folderCount === 1 ? '' : 's' }}</template>.
+          Move them elsewhere before deleting the folder.
+        </p>
+        <p v-else class="explorer-dialog-note">
+          {{ dialog.kind === 'delete-folder'
+            ? 'Only the empty folder will be removed.'
+            : 'The conversation and its messages will be permanently removed.' }}
+        </p>
+        <div class="explorer-dialog-actions">
+          <button type="button" class="secondary" @click="closeDialog">Cancel</button>
+          <button
+            type="button"
+            class="danger-button"
+            :disabled="busy || (dialog.kind === 'delete-folder' && (dialog.itemCount > 0 || dialog.folderCount > 0))"
+            data-explorer-confirm-delete
+            @click="submitDeleteDialog"
+          >
+            {{ busy ? 'Deleting…' : 'Delete' }}
+          </button>
+        </div>
+        </div>
+      </div>
+    </Teleport>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ExplorerItemType, ExplorerTreeNode } from '../../services/api';
+import ExplorerTreeRow from './ExplorerTreeRow.vue';
 
-defineProps<{
+const props = withDefaults(defineProps<{
   tree: ExplorerTreeNode[];
   currentItemId?: string | null;
   title?: string;
-  rootActionTitle?: string;
   primaryActionTitle?: string;
   primaryActionIcon?: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  busy?: boolean;
   editableSessionIcons?: boolean;
   editableItemIcons?: boolean;
-}>();
+  canRenameItems?: boolean;
+  canDeleteItems?: boolean;
+}>(), {
+  currentItemId: null,
+  title: '',
+  primaryActionTitle: '',
+  primaryActionIcon: 'chat_bubble',
+  searchPlaceholder: '',
+  emptyText: '',
+  busy: false,
+  editableSessionIcons: false,
+  editableItemIcons: false,
+  canRenameItems: false,
+  canDeleteItems: false,
+});
 
 const emit = defineEmits<{
   (event: 'select-item', itemType: ExplorerItemType, itemId: string): void;
-  (event: 'create-folder', parentFolderId: string | null): void;
+  (event: 'create-folder', parentFolderId: string | null, name: string): void;
+  (event: 'rename-folder', folderId: string, name: string): void;
+  (event: 'delete-folder', folderId: string): void;
   (event: 'move-item', itemType: ExplorerItemType, itemId: string, folderId: string | null): void;
-  (event: 'primary-action'): void;
+  (event: 'rename-item', itemType: ExplorerItemType, itemId: string, name: string): void;
+  (event: 'delete-item', itemType: ExplorerItemType, itemId: string): void;
+  (event: 'primary-action', folderId: string | null): void;
   (event: 'update-session-icon', sessionId: string, icon: string): void;
   (event: 'update-item-icon', itemType: ExplorerItemType, itemId: string, icon: string): void;
 }>();
 
-const EXPLORER_DRAG_MIME = 'application/x-math-im-book-explorer-item';
-const dragOverRoot = ref(false);
-const sessionIconChoices = [
-  { id: 'function', iconName: 'functions' },
-  { id: 'sigma', iconName: 'calculate' },
-  { id: 'matrix', iconName: 'grid_on' },
-  { id: 'triangle', iconName: 'change_history' },
-  { id: 'atom', iconName: 'science' },
-  { id: 'wave', iconName: 'water' },
-  { id: 'orbit', iconName: 'all_inclusive' },
-] as const;
-const sessionIconNameMap: Record<string, string> =
-  Object.fromEntries(sessionIconChoices.map((icon) => [icon.id, icon.iconName]));
+type DialogState =
+  | { kind: 'name'; mode: 'create-folder'; parentFolderId: string | null }
+  | { kind: 'name'; mode: 'rename-folder'; folderId: string }
+  | { kind: 'name'; mode: 'rename-item'; itemType: ExplorerItemType; itemId: string }
+  | { kind: 'move'; itemType: ExplorerItemType; itemId: string; title: string }
+  | { kind: 'delete-folder'; folderId: string; title: string; itemCount: number; folderCount: number }
+  | { kind: 'delete-item'; itemType: ExplorerItemType; itemId: string; title: string };
 
-interface DraggedExplorerItem {
-  itemType: ExplorerItemType;
-  itemId: string;
-}
+const EXPLORER_DRAG_MIME = 'application/x-math-im-book-explorer-item';
+const query = ref('');
+const dragOverRoot = ref(false);
+const selectedFolderId = ref<string | null>(null);
+const createMenuOpen = ref(false);
+const dialog = ref<DialogState | null>(null);
+const draftName = ref('');
+const moveDestination = ref('');
+const nameInput = ref<HTMLInputElement | null>(null);
+
+const normalizedQuery = computed(() => query.value.trim().toLocaleLowerCase());
+const selectedFolderName = computed(() =>
+  folderOptions.value.find((folder) => folder.id === selectedFolderId.value)?.path || ''
+);
 
 const nodeKey = (node: ExplorerTreeNode) =>
   node.kind === 'folder'
     ? `folder:${node.folder?.folder_id}`
     : `item:${node.location?.item_type}:${node.location?.item_id || node.item?.item_id}`;
 
-const handleSelectItem = (itemType: ExplorerItemType, itemId: string) => {
-  emit('select-item', itemType, itemId);
+const itemTitle = (node: ExplorerTreeNode) => String(
+  node.item?.title || node.item?.session_id || node.item?.id || node.item?.item_id || 'Untitled'
+);
+
+const filterNodes = (nodes: ExplorerTreeNode[]): ExplorerTreeNode[] => {
+  const needle = normalizedQuery.value;
+  if (!needle) return nodes;
+  return nodes.flatMap((node) => {
+    if (node.kind === 'item') {
+      const haystack = [
+        itemTitle(node),
+        node.item?.summary,
+        node.item?.type,
+        node.location?.path_cached,
+      ].filter(Boolean).join(' ').toLocaleLowerCase();
+      return haystack.includes(needle) ? [node] : [];
+    }
+    const folderMatches = String(node.folder?.name || '').toLocaleLowerCase().includes(needle);
+    const matchingChildren = folderMatches ? node.children : filterNodes(node.children);
+    return folderMatches || matchingChildren.length
+      ? [{ ...node, children: matchingChildren }]
+      : [];
+  });
 };
 
-const handleCreateFolder = (parentFolderId: string | null) => {
-  emit('create-folder', parentFolderId);
-};
+const filteredTree = computed(() => filterNodes(props.tree));
+const folderOptions = computed(() => {
+  const options: Array<{ id: string; path: string }> = [];
+  const visit = (nodes: ExplorerTreeNode[], parents: string[]) => {
+    for (const node of nodes) {
+      if (node.kind !== 'folder' || !node.folder) continue;
+      const parts = [...parents, node.folder.name];
+      options.push({ id: node.folder.folder_id, path: parts.join(' / ') });
+      visit(node.children, parts);
+    }
+  };
+  visit(props.tree, []);
+  return options;
+});
 
-const handleMoveItem = (itemType: ExplorerItemType, itemId: string, folderId: string | null) => {
-  emit('move-item', itemType, itemId, folderId);
-};
+const nameDialogTitle = computed(() => {
+  if (dialog.value?.kind !== 'name') return '';
+  if (dialog.value.mode === 'create-folder') return 'Create a folder';
+  if (dialog.value.mode === 'rename-folder') return 'Rename folder';
+  return dialog.value.itemType === 'knowledge_node'
+    ? 'Rename knowledge note'
+    : 'Rename conversation';
+});
 
-const handleUpdateSessionIcon = (sessionId: string, icon: string) => {
-  emit('update-session-icon', sessionId, icon);
+const focusNameInput = async () => {
+  await nextTick();
+  nameInput.value?.focus();
+  nameInput.value?.select();
 };
-
-const handleUpdateItemIcon = (itemType: ExplorerItemType, itemId: string, icon: string) => {
-  emit('update-item-icon', itemType, itemId, icon);
+const openCreateFolder = (parentFolderId: string | null) => {
+  createMenuOpen.value = false;
+  dialog.value = { kind: 'name', mode: 'create-folder', parentFolderId };
+  draftName.value = '';
+  void focusNameInput();
 };
-
-const writeDraggedItem = (event: DragEvent, itemType: ExplorerItemType, itemId: string) => {
-  const payload = JSON.stringify({ itemType, itemId });
-  event.dataTransfer?.setData(EXPLORER_DRAG_MIME, payload);
-  event.dataTransfer?.setData('text/plain', payload);
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move';
+const selectFolder = (folderId: string) => {
+  selectedFolderId.value = folderId;
+  createMenuOpen.value = false;
+};
+const runPrimaryAction = () => {
+  createMenuOpen.value = false;
+  emit('primary-action', selectedFolderId.value);
+};
+const openRenameFolder = (folderId: string, name: string) => {
+  dialog.value = { kind: 'name', mode: 'rename-folder', folderId };
+  draftName.value = name;
+  void focusNameInput();
+};
+const openRenameItem = (itemType: ExplorerItemType, itemId: string, title: string) => {
+  dialog.value = { kind: 'name', mode: 'rename-item', itemType, itemId };
+  draftName.value = title;
+  void focusNameInput();
+};
+const openDeleteFolder = (
+  folderId: string,
+  title: string,
+  itemCountValue: number,
+  folderCountValue: number
+) => {
+  dialog.value = {
+    kind: 'delete-folder',
+    folderId,
+    title,
+    itemCount: itemCountValue,
+    folderCount: folderCountValue,
+  };
+};
+const openDeleteItem = (itemType: ExplorerItemType, itemId: string, title: string) => {
+  dialog.value = { kind: 'delete-item', itemType, itemId, title };
+};
+const openMoveItem = (
+  itemType: ExplorerItemType,
+  itemId: string,
+  title: string,
+  folderId: string | null
+) => {
+  dialog.value = { kind: 'move', itemType, itemId, title };
+  moveDestination.value = folderId || '';
+};
+const closeDialog = () => {
+  if (props.busy) return;
+  dialog.value = null;
+  draftName.value = '';
+  moveDestination.value = '';
+};
+const submitNameDialog = () => {
+  if (dialog.value?.kind !== 'name' || !draftName.value.trim()) return;
+  const name = draftName.value.trim();
+  if (dialog.value.mode === 'create-folder') {
+    emit('create-folder', dialog.value.parentFolderId, name);
+  } else if (dialog.value.mode === 'rename-folder') {
+    emit('rename-folder', dialog.value.folderId, name);
+  } else {
+    emit('rename-item', dialog.value.itemType, dialog.value.itemId, name);
   }
+  closeDialog();
+};
+const submitMoveDialog = () => {
+  if (dialog.value?.kind !== 'move') return;
+  emit(
+    'move-item',
+    dialog.value.itemType,
+    dialog.value.itemId,
+    moveDestination.value || null
+  );
+  closeDialog();
+};
+const submitDeleteDialog = () => {
+  if (!dialog.value || dialog.value.kind === 'name' || dialog.value.kind === 'move') return;
+  if (dialog.value.kind === 'delete-folder') {
+    if (dialog.value.itemCount || dialog.value.folderCount) return;
+    emit('delete-folder', dialog.value.folderId);
+  } else {
+    emit('delete-item', dialog.value.itemType, dialog.value.itemId);
+  }
+  closeDialog();
 };
 
-const readDraggedItem = (event: DragEvent): DraggedExplorerItem | null => {
-  const raw =
-    event.dataTransfer?.getData(EXPLORER_DRAG_MIME) ||
-    event.dataTransfer?.getData('text/plain');
+const parseDraggedItem = (event: DragEvent): { itemType: ExplorerItemType; itemId: string } | null => {
+  const raw = event.dataTransfer?.getData(EXPLORER_DRAG_MIME)
+    || event.dataTransfer?.getData('text/plain');
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<DraggedExplorerItem>;
+    const payload = JSON.parse(raw) as { itemType?: string; itemId?: string };
     if (
-      (parsed.itemType === 'session' || parsed.itemType === 'knowledge_node') &&
-      typeof parsed.itemId === 'string' &&
-      parsed.itemId
+      (payload.itemType === 'session' || payload.itemType === 'knowledge_node')
+      && typeof payload.itemId === 'string'
+      && payload.itemId
     ) {
-      return { itemType: parsed.itemType, itemId: parsed.itemId };
+      return { itemType: payload.itemType, itemId: payload.itemId };
     }
   } catch {
     return null;
   }
   return null;
 };
-
 const handleRootDragOver = (event: DragEvent) => {
   dragOverRoot.value = true;
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'move';
-  }
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
 };
-
 const handleRootDrop = (event: DragEvent) => {
   dragOverRoot.value = false;
-  const dragged = readDraggedItem(event);
-  if (!dragged) return;
-  emit('move-item', dragged.itemType, dragged.itemId, null);
+  const dragged = parseDraggedItem(event);
+  if (dragged) emit('move-item', dragged.itemType, dragged.itemId, null);
 };
 
-const itemTitle = (node: ExplorerTreeNode) =>
-  String(node.item?.title || node.item?.session_id || node.item?.id || node.item?.item_id || 'Untitled');
-
-const itemId = (node: ExplorerTreeNode) =>
-  String(node.location?.item_id || node.item?.item_id || node.item?.session_id || node.item?.id || '');
-
-const itemType = (node: ExplorerTreeNode): ExplorerItemType =>
-  (node.location?.item_type || node.item?.item_type || 'knowledge_node') as ExplorerItemType;
-
-const itemIcon = (node: ExplorerTreeNode) => {
-  const customIcon = sessionIconNameMap[String(node.item?.icon || '')];
-  if (customIcon) return customIcon;
-  if (itemType(node) === 'session') {
-    return 'functions';
+const handleGlobalKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && (dialog.value || createMenuOpen.value)) {
+    if (dialog.value) closeDialog();
+    createMenuOpen.value = false;
+    return;
   }
-  const type = String(node.item?.type || '').toLowerCase();
-  if (type === 'definition') return 'data_object';
-  if (type === 'theorem') return 'account_tree';
-  if (type === 'proof') return 'functions';
-  return 'article';
+  const target = event.target as HTMLElement | null;
+  const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName || '');
+  if (event.key === '/' && !isTyping && !dialog.value) {
+    event.preventDefault();
+    document.querySelector<HTMLInputElement>('[data-explorer-search]')?.focus();
+  }
 };
 
-const ExplorerTreeRow: any = defineComponent({
-  name: 'ExplorerTreeRow',
-  props: {
-    node: { type: Object as () => ExplorerTreeNode, required: true },
-    depth: { type: Number, required: true },
-    currentItemId: { type: String, required: false },
-    editableSessionIcons: { type: Boolean, default: false },
-    editableItemIcons: { type: Boolean, default: false },
-  },
-  emits: ['select-item', 'create-folder', 'move-item', 'update-session-icon', 'update-item-icon'],
-  setup(props, { emit }): () => any {
-    const expanded = ref(true);
-    const iconPickerOpen = ref(false);
-    const folderId = computed(() => props.node.folder?.folder_id || null);
-    const currentItemId = computed(() => itemId(props.node));
-    const isActive = computed(
-      () => props.node.kind === 'item' && props.currentItemId === currentItemId.value
-    );
-    const paddingLeft = computed(() => `${props.depth * 14 + 6}px`);
-    const dragOverFolder = ref(false);
-    const toggleFolder = () => {
-      expanded.value = !expanded.value;
-    };
-    const handleKeyboardAction = (event: KeyboardEvent, action: () => void) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      action();
-    };
-
-    return () => {
-      if (props.node.kind === 'folder') {
-        const id = folderId.value;
-        return h('div', { class: 'explorer-tree-group' }, [
-          h(
-            'div',
-            {
-              class: [
-                'explorer-tree-row explorer-tree-folder',
-                dragOverFolder.value ? 'explorer-tree-drop-target' : '',
-              ],
-              style: { paddingLeft: paddingLeft.value },
-              'data-explorer-folder': id,
-              role: 'button',
-              tabindex: 0,
-              'aria-expanded': expanded.value ? 'true' : 'false',
-              onClick: toggleFolder,
-              onKeydown: (event: KeyboardEvent) => handleKeyboardAction(event, toggleFolder),
-              onDragenter: (event: DragEvent) => {
-                event.preventDefault();
-                event.stopPropagation();
-                dragOverFolder.value = true;
-              },
-              onDragover: (event: DragEvent) => {
-                event.preventDefault();
-                event.stopPropagation();
-                dragOverFolder.value = true;
-                if (event.dataTransfer) {
-                  event.dataTransfer.dropEffect = 'move';
-                }
-              },
-              onDragleave: () => {
-                dragOverFolder.value = false;
-              },
-              onDrop: (event: DragEvent) => {
-                event.preventDefault();
-                event.stopPropagation();
-                dragOverFolder.value = false;
-                const dragged = readDraggedItem(event);
-                if (!dragged || !id) return;
-                emit('move-item', dragged.itemType, dragged.itemId, id);
-              },
-            },
-            [
-              h(
-                'button',
-                {
-                  type: 'button',
-                  class: 'explorer-tree-toggle',
-                  'data-explorer-folder-toggle': id,
-                  onClick: (event: MouseEvent) => {
-                    event.stopPropagation();
-                    toggleFolder();
-                  },
-                },
-                [
-                  h(
-                    'span',
-                    { class: 'material-symbols-outlined text-[15px]' },
-                    expanded.value ? 'expand_more' : 'chevron_right'
-                  ),
-                ]
-              ),
-              h('span', { class: 'material-symbols-outlined explorer-tree-icon' }, expanded.value ? 'folder_open' : 'folder'),
-              h('span', { class: 'explorer-tree-label' }, props.node.folder?.name || 'Untitled'),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  class: 'explorer-tree-action',
-                  'data-explorer-create-folder': id,
-                  title: 'New folder',
-                  onClick: (event: MouseEvent) => {
-                    event.stopPropagation();
-                    emit('create-folder', id);
-                  },
-                },
-                [h('span', { class: 'material-symbols-outlined text-[14px]' }, 'create_new_folder')]
-              ),
-            ]
-          ),
-          expanded.value &&
-            h(
-              'div',
-              { class: 'explorer-tree-children' },
-              props.node.children.map((child) =>
-                h(ExplorerTreeRow as any, {
-                  key: nodeKey(child),
-                  node: child,
-                  depth: props.depth + 1,
-                  currentItemId: props.currentItemId,
-                  editableSessionIcons: props.editableSessionIcons,
-                  editableItemIcons: props.editableItemIcons,
-                  onSelectItem: (type: ExplorerItemType, id: string) => emit('select-item', type, id),
-                  onCreateFolder: (id: string | null) => emit('create-folder', id),
-                  onMoveItem: (type: ExplorerItemType, id: string, folderId: string | null) =>
-                    emit('move-item', type, id, folderId),
-                  onUpdateSessionIcon: (id: string, icon: string) =>
-                    emit('update-session-icon', id, icon),
-                  onUpdateItemIcon: (type: ExplorerItemType, id: string, icon: string) =>
-                    emit('update-item-icon', type, id, icon),
-                })
-              )
-            ),
-        ]);
-      }
-
-      const selectItem = () => emit('select-item', itemType(props.node), currentItemId.value);
-      const isSessionItem = itemType(props.node) === 'session';
-      const canEditIcon =
-        props.editableItemIcons || (props.editableSessionIcons && isSessionItem);
-      const iconTriggerAttribute = isSessionItem
-        ? { 'data-session-icon-trigger': currentItemId.value }
-        : { 'data-item-icon-trigger': currentItemId.value };
-      const iconOptionAttribute = isSessionItem
-        ? 'data-session-icon-option'
-        : 'data-item-icon-option';
-      const iconElement = canEditIcon
-        ? h('span', { class: 'explorer-tree-icon-anchor' }, [
-            h(
-              'button',
-              {
-                type: 'button',
-                class: 'explorer-tree-icon-button',
-                ...iconTriggerAttribute,
-                title: 'Change icon',
-                onClick: (event: MouseEvent) => {
-                  event.stopPropagation();
-                  iconPickerOpen.value = !iconPickerOpen.value;
-                },
-              },
-              [
-                h(
-                  'span',
-                  {
-                    class: 'material-symbols-outlined explorer-tree-icon',
-                    'data-explorer-item-icon': currentItemId.value,
-                  },
-                  itemIcon(props.node)
-                ),
-              ]
-            ),
-            iconPickerOpen.value &&
-              h(
-                'div',
-                { class: 'explorer-tree-icon-picker' },
-                sessionIconChoices.map((icon) =>
-                  h(
-                    'button',
-                    {
-                      key: icon.id,
-                      type: 'button',
-                      class: 'explorer-tree-icon-option',
-                      [iconOptionAttribute]: icon.id,
-                      onClick: (event: MouseEvent) => {
-                        event.stopPropagation();
-                        iconPickerOpen.value = false;
-                        if (isSessionItem && props.editableSessionIcons) {
-                          emit('update-session-icon', currentItemId.value, icon.id);
-                        } else {
-                          emit('update-item-icon', itemType(props.node), currentItemId.value, icon.id);
-                        }
-                      },
-                    },
-                    [h('span', { class: 'material-symbols-outlined text-[18px]' }, icon.iconName)]
-                  )
-                )
-              ),
-          ])
-        : h(
-            'span',
-            {
-              class: 'material-symbols-outlined explorer-tree-icon',
-              'data-explorer-item-icon': currentItemId.value,
-            },
-            itemIcon(props.node)
-          );
-
-      return h(
-        'div',
-        {
-          class: [
-            'explorer-tree-row explorer-tree-item',
-            isActive.value ? 'tree-item-active' : '',
-          ],
-          style: { paddingLeft: paddingLeft.value },
-          'data-explorer-item': currentItemId.value,
-          role: 'button',
-          tabindex: 0,
-          draggable: true,
-          onClick: selectItem,
-          onKeydown: (event: KeyboardEvent) => handleKeyboardAction(event, selectItem),
-          onDragstart: (event: DragEvent) => {
-            writeDraggedItem(event, itemType(props.node), currentItemId.value);
-          },
-        },
-        [
-          h('span', { class: 'explorer-tree-spacer' }),
-          iconElement,
-          h('span', { class: 'explorer-tree-label' }, itemTitle(props.node)),
-        ]
-      );
-    };
-  },
-});
+onMounted(() => document.addEventListener('keydown', handleGlobalKeydown));
+onBeforeUnmount(() => document.removeEventListener('keydown', handleGlobalKeydown));
 </script>

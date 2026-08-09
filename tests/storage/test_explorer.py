@@ -290,6 +290,30 @@ def test_item_icon_customization_is_applied_to_tree_items(tmp_path: Path) -> Non
     assert tree[0]["item"]["icon"] == "atom"
 
 
+def test_remove_item_cleans_location_and_icon_metadata(tmp_path: Path) -> None:
+    store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    folder = store.create_folder(scope="sessions", name="Course", parent_folder_id=None)
+    store.move_item(
+        item_type="session",
+        item_id="chat-1",
+        folder_id=folder.folder_id,
+        sort_order=1000,
+        location_source="user",
+    )
+    store.set_item_icon(item_type="session", item_id="chat-1", icon="sigma")
+
+    assert store.remove_item(item_type="session", item_id="chat-1") is True
+    assert store.find_location("session", "chat-1") is None
+    assert store.load_payload()["item_icons"] == []
+    store.delete_folder(folder.folder_id)
+
+
+def test_remove_missing_item_is_a_noop(tmp_path: Path) -> None:
+    store = ExplorerStore(tmp_path / "explorer" / "index.json")
+
+    assert store.remove_item(item_type="session", item_id="missing") is False
+
+
 def test_stale_folder_location_falls_back_to_root_tree_item(tmp_path: Path) -> None:
     store = ExplorerStore(tmp_path / "explorer" / "index.json")
     store.load_payload()

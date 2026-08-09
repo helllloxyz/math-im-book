@@ -58,6 +58,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const currentSession = ref<Session | null>(null);
   const currentNode = ref<KnowledgeNode | null>(null);
   const loading = ref(false);
+  const explorerBusy = ref(false);
   const errorMessage = ref<string | null>(null);
   const credentials = ref<CredentialSummary[]>([]);
   const providerOptions = ref<ProviderOption[]>([]);
@@ -69,6 +70,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const selectedStrategyAgentId = ref('');
   const selectedProviderProfile = ref<ProviderProfile | null>(null);
   const draftQuestion = ref('');
+  const newSessionFolderId = ref<string | null>(null);
   const activeTab = ref<'chat' | 'book' | 'agent'>('chat');
   const agentState = ref<AgentState | null>(null);
   const agentStateLoading = ref(false);
@@ -562,18 +564,73 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
+  async function organizeKnowledgeExplorer() {
+    explorerBusy.value = true;
+    try {
+      const result = await api.organizeKnowledgeExplorer();
+      await fetchKnowledgeExplorer();
+      return result;
+    } finally {
+      explorerBusy.value = false;
+    }
+  }
+
+  async function renameKnowledgeNode(nodeId: string, title: string) {
+    explorerBusy.value = true;
+    try {
+      const node = await api.updateKnowledgeNode(nodeId, { title });
+      if (currentNode.value?.id === nodeId) currentNode.value = node;
+      outline.value = outline.value.map((entry) =>
+        entry.id === nodeId ? { ...entry, title: node.title } : entry
+      );
+      await fetchKnowledgeExplorer();
+    } catch (error) {
+      console.error(`Failed to rename knowledge node ${nodeId}:`, error);
+      throw error;
+    } finally {
+      explorerBusy.value = false;
+    }
+  }
+
   async function createExplorerFolder(
     scope: ExplorerScope,
     name: string,
     parentFolderId: string | null = null
   ) {
-    await api.createExplorerFolder({
-      scope,
-      name,
-      parent_folder_id: parentFolderId,
-    });
-    if (scope === 'sessions') await fetchSessionExplorer();
-    if (scope === 'knowledge') await fetchKnowledgeExplorer();
+    explorerBusy.value = true;
+    try {
+      await api.createExplorerFolder({
+        scope,
+        name,
+        parent_folder_id: parentFolderId,
+      });
+      if (scope === 'sessions') await fetchSessionExplorer();
+      if (scope === 'knowledge') await fetchKnowledgeExplorer();
+    } finally {
+      explorerBusy.value = false;
+    }
+  }
+
+  async function renameExplorerFolder(folderId: string, name: string) {
+    explorerBusy.value = true;
+    try {
+      const folder = await api.renameExplorerFolder(folderId, name);
+      if (folder.scope === 'sessions') await fetchSessionExplorer();
+      if (folder.scope === 'knowledge') await fetchKnowledgeExplorer();
+    } finally {
+      explorerBusy.value = false;
+    }
+  }
+
+  async function deleteExplorerFolder(scope: ExplorerScope, folderId: string) {
+    explorerBusy.value = true;
+    try {
+      await api.deleteExplorerFolder(folderId);
+      if (scope === 'sessions') await fetchSessionExplorer();
+      if (scope === 'knowledge') await fetchKnowledgeExplorer();
+    } finally {
+      explorerBusy.value = false;
+    }
   }
 
   async function moveExplorerItem(
@@ -581,12 +638,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     itemId: string,
     folderId: string | null
   ) {
-    await api.moveExplorerItem(itemType, itemId, {
-      folder_id: folderId,
-      sort_order: 1000,
-    });
-    if (itemType === 'session') await fetchSessionExplorer();
-    if (itemType === 'knowledge_node') await fetchKnowledgeExplorer();
+    explorerBusy.value = true;
+    try {
+      await api.moveExplorerItem(itemType, itemId, {
+        folder_id: folderId,
+        sort_order: 1000,
+      });
+      if (itemType === 'session') await fetchSessionExplorer();
+      if (itemType === 'knowledge_node') await fetchKnowledgeExplorer();
+    } finally {
+      explorerBusy.value = false;
+    }
   }
 
   async function updateExplorerItemIcon(
@@ -594,9 +656,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     itemId: string,
     icon: string
   ) {
-    await api.updateExplorerItemIcon(itemType, itemId, icon);
-    if (itemType === 'session') await fetchSessionExplorer();
-    if (itemType === 'knowledge_node') await fetchKnowledgeExplorer();
+    explorerBusy.value = true;
+    try {
+      await api.updateExplorerItemIcon(itemType, itemId, icon);
+      if (itemType === 'session') await fetchSessionExplorer();
+      if (itemType === 'knowledge_node') await fetchKnowledgeExplorer();
+    } finally {
+      explorerBusy.value = false;
+    }
   }
 
   async function fetchAnswerStyles() {
@@ -633,6 +700,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function selectSession(sessionId: string) {
     cancelKnowledgeJobPolling();
+    newSessionFolderId.value = null;
     loading.value = true;
     focusedAgentMessageId.value = null;
     try {
@@ -674,6 +742,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     errorMessage.value = null;
     const previousSession = currentSession.value ? { ...currentSession.value } : null;
     currentSession.value = ensureStreamingSession(question);
+    const creatingSession = currentSession.value.session_id === undefined;
+    const targetFolderId = creatingSession ? newSessionFolderId.value : null;
     try {
       const strategyAgentId =
         currentSession.value?.session_id === undefined
@@ -726,6 +796,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           response.session.session_id,
           latestAssistant.message_id
         );
+      }
+      if (targetFolderId && response.session.session_id) {
+        try {
+          await api.moveExplorerItem('session', response.session.session_id, {
+            folder_id: targetFolderId,
+            sort_order: 1000,
+          });
+          newSessionFolderId.value = null;
+        } catch (error) {
+          console.error(`Failed to place new session in folder ${targetFolderId}:`, error);
+        }
       }
       // Refresh session list to show updated titles/summaries
       await fetchSessions();
@@ -845,7 +926,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function updateSessionIcon(sessionId: string, icon: string) {
-    loading.value = true;
+    explorerBusy.value = true;
     try {
       const session = await api.updateSession(sessionId, { icon });
       if (currentSession.value?.session_id === sessionId) {
@@ -854,11 +935,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       sessions.value = sessions.value.map((entry) =>
         entry.session_id === sessionId ? { ...entry, icon: session.icon } : entry
       );
+      await fetchSessionExplorer();
     } catch (error) {
       console.error(`Failed to update session icon for ${sessionId}:`, error);
       throw error;
     } finally {
-      loading.value = false;
+      explorerBusy.value = false;
+    }
+  }
+
+  async function renameSession(sessionId: string, title: string) {
+    explorerBusy.value = true;
+    try {
+      const session = await api.updateSession(sessionId, { title });
+      if (currentSession.value?.session_id === sessionId) {
+        currentSession.value = session;
+      }
+      sessions.value = sessions.value.map((entry) =>
+        entry.session_id === sessionId ? { ...entry, title: session.title } : entry
+      );
+      await fetchSessionExplorer();
+    } catch (error) {
+      console.error(`Failed to rename session ${sessionId}:`, error);
+      throw error;
+    } finally {
+      explorerBusy.value = false;
     }
   }
 
@@ -975,7 +1076,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  function newSession() {
+  function newSession(folderId: string | null = null) {
     cancelKnowledgeJobPolling();
     const nextProfile =
       normalizeProviderProfile(selectedProviderProfile.value) ||
@@ -987,6 +1088,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectedProviderProfile.value = nextProfile;
     selectedStrategyAgentId.value = defaultStrategyAgentId();
     selectedAnswerStyleId.value = null;
+    newSessionFolderId.value = folderId;
   }
 
   watch(
@@ -1031,6 +1133,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentSession,
     currentNode,
     loading,
+    explorerBusy,
     errorMessage,
     credentials,
     providerOptions,
@@ -1043,6 +1146,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectedStrategyAgentId,
     selectedProviderProfile,
     draftQuestion,
+    newSessionFolderId,
     activeTab,
     agentState,
     agentStateLoading,
@@ -1051,7 +1155,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fetchSessions,
     fetchSessionExplorer,
     fetchKnowledgeExplorer,
+    organizeKnowledgeExplorer,
+    renameKnowledgeNode,
     createExplorerFolder,
+    renameExplorerFolder,
+    deleteExplorerFolder,
     moveExplorerItem,
     updateExplorerItemIcon,
     fetchAnswerStyles,
@@ -1073,6 +1181,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     newSession,
     fork,
     deleteSession,
+    renameSession,
     updateSessionIcon,
     updateSessionConversationModel,
   };

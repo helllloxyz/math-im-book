@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { DOMWrapper, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
 import SessionTree from './SessionTree.vue';
@@ -81,9 +81,10 @@ describe('SessionTree', () => {
       },
     });
 
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
-    expect(newSessionSpy).toHaveBeenCalledTimes(1);
+    expect(newSessionSpy).toHaveBeenCalledWith(null);
   });
 
   it('updates session icons from the row picker', async () => {
@@ -127,6 +128,44 @@ describe('SessionTree', () => {
     expect(updateIconSpy).toHaveBeenCalledWith('chat-1', 'atom');
   });
 
+  it('renames and deletes conversations from the item menu', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    store.sessionExplorerTree = [
+      {
+        kind: 'item',
+        item: { item_type: 'session', item_id: 'chat-1', title: 'Old title' },
+        location: {
+          item_type: 'session',
+          item_id: 'chat-1',
+          folder_id: null,
+          sort_order: 1000,
+          path_cached: '/chat-1',
+          location_source: 'system',
+          user_locked: false,
+          updated_at: '',
+        },
+        children: [],
+      },
+    ] as any;
+    const renameSpy = vi.spyOn(store, 'renameSession').mockResolvedValue(undefined);
+    const deleteSpy = vi.spyOn(store, 'deleteSession').mockResolvedValue(undefined);
+    const wrapper = mount(SessionTree, { global: { plugins: [pinia] } });
+
+    await wrapper.get('[data-explorer-item-menu="chat-1"]').trigger('click');
+    await wrapper.get('[data-explorer-rename-item="chat-1"]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('New title');
+    await body.get('.explorer-dialog').trigger('submit');
+    expect(renameSpy).toHaveBeenCalledWith('chat-1', 'New title');
+
+    await wrapper.get('[data-explorer-item-menu="chat-1"]').trigger('click');
+    await wrapper.get('[data-explorer-delete-item="chat-1"]').trigger('click');
+    await body.get('[data-explorer-confirm-delete]').trigger('click');
+    expect(deleteSpy).toHaveBeenCalledWith('chat-1');
+  });
+
   it('creates a child session folder from folder rows', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
@@ -154,7 +193,12 @@ describe('SessionTree', () => {
       },
     });
 
-    await wrapper.get('[data-explorer-create-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-create-folder]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('Course');
+    await body.get('.explorer-dialog').trigger('submit');
 
     expect(createSpy).toHaveBeenCalledWith('sessions', 'Course', 'folder-1');
   });

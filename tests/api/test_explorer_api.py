@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from math_im_book.api.app import create_app
@@ -109,6 +111,34 @@ def test_cross_scope_move_returns_400(tmp_path) -> None:
     assert response.json()["detail"] == "Target folder is not in the item scope"
 
 
+def test_move_missing_item_does_not_create_stale_explorer_metadata(tmp_path: Path) -> None:
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    client = TestClient(create_app(explorer_store=explorer_store))
+
+    response = client.patch(
+        "/api/explorer/items/session/missing/location",
+        json={"folder_id": None, "sort_order": 1000},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Conversation not found"
+    assert explorer_store.load_payload()["locations"] == []
+
+
+def test_icon_update_for_missing_knowledge_note_returns_404(tmp_path: Path) -> None:
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    client = TestClient(create_app(explorer_store=explorer_store))
+
+    response = client.patch(
+        "/api/explorer/items/knowledge_node/missing/icon",
+        json={"icon": "atom"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Knowledge note not found"
+    assert explorer_store.load_payload()["item_icons"] == []
+
+
 def test_knowledge_explorer_returns_foldered_node(tmp_path) -> None:
     repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
     repository.save_node(
@@ -169,3 +199,72 @@ def test_patch_knowledge_explorer_icon_returns_icon_in_tree(tmp_path) -> None:
     assert response.status_code == 200
     assert response.json()["icon"]["icon"] == "wave"
     assert tree_response.json()["tree"][0]["item"]["icon"] == "wave"
+
+
+def test_organize_knowledge_groups_unlocked_root_nodes_and_preserves_user_placement(
+    tmp_path: Path,
+) -> None:
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    for node in (
+        KnowledgeNode(
+            id="vector-space",
+            title="Vector Space",
+            type="definition",
+            summary="A set with vector operations.",
+            detail="Detail",
+            parent_id=None,
+            source="chat:1",
+            status="ready",
+        ),
+        KnowledgeNode(
+            id="basis-proof",
+            title="Basis Extension Proof",
+            type="proof",
+            summary="Extends a linearly independent set.",
+            detail="Detail",
+            parent_id=None,
+            source="chat:1",
+            status="ready",
+        ),
+        KnowledgeNode(
+            id="manual-note",
+            title="Manual Note",
+            type="atomic",
+            summary="A user-positioned note.",
+            detail="Detail",
+            parent_id=None,
+            source="chat:1",
+            status="ready",
+        ),
+    ):
+        repository.save_node(node)
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    explorer_store.move_item(
+        item_type="knowledge_node",
+        item_id="manual-note",
+        folder_id=None,
+        sort_order=1000,
+        location_source="user",
+    )
+    client = TestClient(create_app(repository=repository, explorer_store=explorer_store))
+
+    response = client.post("/api/explorer/knowledge/organize")
+    second_response = client.post("/api/explorer/knowledge/organize")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "scope": "knowledge",
+        "organized_count": 2,
+        "folders_created": 2,
+    }
+    assert second_response.json()["organized_count"] == 0
+    assert explorer_store.find_location("knowledge_node", "vector-space").path_cached == (
+        "/Definitions/vector-space"
+    )
+    assert explorer_store.find_location("knowledge_node", "basis-proof").path_cached == (
+        "/Proofs & Derivations/basis-proof"
+    )
+    manual_location = explorer_store.find_location("knowledge_node", "manual-note")
+    assert manual_location is not None
+    assert manual_location.folder_id is None
+    assert manual_location.user_locked is True

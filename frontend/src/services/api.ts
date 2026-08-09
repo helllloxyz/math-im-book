@@ -361,6 +361,12 @@ export interface ExplorerItemIcon {
   updated_at: string;
 }
 
+export interface ExplorerOrganizeResult {
+  scope: 'knowledge';
+  organized_count: number;
+  folders_created: number;
+}
+
 export interface NodeReference {
   node_id: string;
   reason: string;
@@ -462,6 +468,11 @@ export const api = {
     return response.data;
   },
 
+  async organizeKnowledgeExplorer(): Promise<ExplorerOrganizeResult> {
+    const response = await client.post<ExplorerOrganizeResult>('/explorer/knowledge/organize');
+    return response.data;
+  },
+
   async createExplorerFolder(payload: {
     scope: ExplorerScope;
     name: string;
@@ -509,6 +520,11 @@ export const api = {
 
   async getNode(nodeId: string): Promise<KnowledgeNode> {
     const response = await client.get<{ node: KnowledgeNode }>(`/nodes/${nodeId}`);
+    return response.data.node;
+  },
+
+  async updateKnowledgeNode(nodeId: string, payload: { title: string }): Promise<KnowledgeNode> {
+    const response = await client.patch<{ node: KnowledgeNode }>(`/nodes/${nodeId}`, payload);
     return response.data.node;
   },
 

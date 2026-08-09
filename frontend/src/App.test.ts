@@ -143,10 +143,11 @@ describe('App new session flow', () => {
       },
     });
 
-    await wrapper.get('button[title="New Conversation"]').trigger('click');
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(store.currentSession).toBeNull();
-    expect(wrapper.text()).toContain('Session Tree');
+    expect(wrapper.text()).toContain('Conversations');
   });
 
   it('uses the chat sidebar header as the new conversation action', async () => {
@@ -162,13 +163,14 @@ describe('App new session flow', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('Session Tree');
+    expect(wrapper.text()).toContain('Conversations');
     expect(wrapper.find('[data-sidebar-new-conversation]').exists()).toBe(false);
     expect(wrapper.findAll('button').filter((button) => button.text().includes('New Conversation'))).toHaveLength(0);
 
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
-    expect(newSessionSpy).toHaveBeenCalledTimes(1);
+    expect(newSessionSpy).toHaveBeenCalledWith(null);
   });
 
   it('uses the explorer tree header as the library sidebar context label', async () => {
@@ -185,8 +187,8 @@ describe('App new session flow', () => {
     });
 
     expect(wrapper.find('[data-sidebar-context-label]').exists()).toBe(false);
-    expect(wrapper.text()).toContain('Book Outline');
-    expect(wrapper.find('[data-explorer-create-root-folder]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Library');
+    expect(wrapper.find('[data-explorer-create-menu]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain('Knowledge Explorer');
   });
 

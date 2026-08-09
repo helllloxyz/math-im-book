@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
 import BookOutline from './BookOutline.vue';
@@ -111,6 +111,58 @@ describe('BookOutline', () => {
     expect(updateIconSpy).toHaveBeenCalledWith('knowledge_node', 'vector-space', 'wave');
   });
 
+  it('renames a knowledge note from the item menu', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    store.knowledgeExplorerTree = [
+      {
+        kind: 'item',
+        item: { item_type: 'knowledge_node', item_id: 'vector-space', title: 'Vector Space' },
+        location: {
+          item_type: 'knowledge_node',
+          item_id: 'vector-space',
+          folder_id: null,
+          sort_order: 1000,
+          path_cached: '/vector-space',
+          location_source: 'system',
+          user_locked: false,
+          updated_at: '',
+        },
+        children: [],
+      },
+    ] as any;
+    const renameSpy = vi.spyOn(store, 'renameKnowledgeNode').mockResolvedValue(undefined);
+    const wrapper = mount(BookOutline, { global: { plugins: [pinia] } });
+
+    await wrapper.get('[data-explorer-item-menu="vector-space"]').trigger('click');
+    await wrapper.get('[data-explorer-rename-item="vector-space"]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('Linear Space');
+    await body.get('form[aria-labelledby="rename-item-title"]').trigger('submit');
+
+    expect(renameSpy).toHaveBeenCalledWith('vector-space', 'Linear Space');
+  });
+
+  it('organizes uncategorized knowledge from the header action', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    const organizeSpy = vi.spyOn(store, 'organizeKnowledgeExplorer').mockResolvedValue({
+      scope: 'knowledge',
+      organized_count: 2,
+      folders_created: 1,
+    });
+    const wrapper = mount(BookOutline, { global: { plugins: [pinia] } });
+
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-primary-action]').trigger('click');
+    await flushPromises();
+
+    expect(organizeSpy).toHaveBeenCalledTimes(1);
+    expect(wrapper.find('.explorer-feedback').exists()).toBe(false);
+  });
+
   it('creates a child knowledge folder from folder rows', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
@@ -138,7 +190,12 @@ describe('BookOutline', () => {
       },
     });
 
-    await wrapper.get('[data-explorer-create-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-create-folder]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('Linear Algebra');
+    await body.get('.explorer-dialog').trigger('submit');
 
     expect(createSpy).toHaveBeenCalledWith('knowledge', 'Linear Algebra', 'folder-1');
   });

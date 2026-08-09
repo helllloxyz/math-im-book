@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { DOMWrapper, mount } from '@vue/test-utils';
 
 import ExplorerTree from './ExplorerTree.vue';
 import type { ExplorerTreeNode } from '../../services/api';
@@ -86,7 +86,7 @@ describe('ExplorerTree', () => {
     expect(wrapper.text()).not.toContain('Linear Map');
   });
 
-  it('toggles folders from the full folder row', async () => {
+  it('selects folders from the full row and leaves expansion to the chevron', async () => {
     const wrapper = mount(ExplorerTree, {
       props: {
         tree,
@@ -95,10 +95,9 @@ describe('ExplorerTree', () => {
     });
 
     await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
-    expect(wrapper.text()).not.toContain('Linear Map');
-
-    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
     expect(wrapper.text()).toContain('Linear Map');
+    expect(wrapper.get('[data-explorer-folder="folder-1"]').classes()).toContain('tree-folder-active');
+    expect(wrapper.get('[data-explorer-folder="folder-1"]').attributes('aria-selected')).toBe('true');
   });
 
   it('emits select and create-folder actions', async () => {
@@ -110,10 +109,15 @@ describe('ExplorerTree', () => {
     });
 
     await wrapper.get('[data-explorer-item="linear-map"]').trigger('click');
-    await wrapper.get('[data-explorer-create-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-create-folder]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('Vector spaces');
+    await body.get('.explorer-dialog').trigger('submit');
 
     expect(wrapper.emitted('select-item')?.[0]).toEqual(['knowledge_node', 'linear-map']);
-    expect(wrapper.emitted('create-folder')?.[0]).toEqual(['folder-1']);
+    expect(wrapper.emitted('create-folder')?.[0]).toEqual(['folder-1', 'Vector spaces']);
   });
 
   it('emits root create-folder from the tree toolbar', async () => {
@@ -124,9 +128,62 @@ describe('ExplorerTree', () => {
       },
     });
 
-    await wrapper.get('[data-explorer-create-root-folder]').trigger('click');
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-create-folder]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('Inbox');
+    await body.get('.explorer-dialog').trigger('submit');
 
-    expect(wrapper.emitted('create-folder')?.[0]).toEqual([null]);
+    expect(wrapper.emitted('create-folder')?.[0]).toEqual([null, 'Inbox']);
+  });
+
+  it('filters titles and summaries while preserving matching folder context', async () => {
+    const wrapper = mount(ExplorerTree, {
+      props: { tree, currentItemId: null },
+    });
+
+    await wrapper.get('[data-explorer-search]').setValue('linear map');
+    expect(wrapper.text()).toContain('Linear Algebra');
+    expect(wrapper.text()).toContain('Linear Map');
+
+    await wrapper.get('[data-explorer-search]').setValue('topology');
+    expect(wrapper.find('[data-explorer-empty]').text()).toContain('No results');
+  });
+
+  it('renames folders and prevents deleting non-empty folders', async () => {
+    const wrapper = mount(ExplorerTree, {
+      props: { tree, currentItemId: null },
+    });
+
+    await wrapper.get('[data-explorer-folder-menu="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-rename-folder="folder-1"]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('Foundations');
+    await body.get('.explorer-dialog').trigger('submit');
+    expect(wrapper.emitted('rename-folder')?.[0]).toEqual(['folder-1', 'Foundations']);
+
+    await wrapper.get('[data-explorer-folder-menu="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-delete-folder="folder-1"]').trigger('click');
+    expect(body.get('[data-explorer-confirm-delete]').attributes('disabled')).toBeDefined();
+    expect(body.text()).toContain('Move them elsewhere');
+  });
+
+  it('offers a keyboard and touch friendly move dialog', async () => {
+    const wrapper = mount(ExplorerTree, {
+      props: { tree: treeWithDropTarget, currentItemId: null },
+    });
+
+    await wrapper.get('[data-explorer-item-menu="linear-map"]').trigger('click');
+    await wrapper.get('[data-explorer-move-item="linear-map"]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-move-select]').setValue('folder-2');
+    await body.get('form[aria-labelledby="move-item-title"]').trigger('submit');
+
+    expect(wrapper.emitted('move-item')?.[0]).toEqual([
+      'knowledge_node',
+      'linear-map',
+      'folder-2',
+    ]);
   });
 
   it('uses stored session icons for session rows', () => {
@@ -246,9 +303,26 @@ describe('ExplorerTree', () => {
       },
     });
 
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
-    expect(wrapper.emitted('primary-action')).toHaveLength(1);
+    expect(wrapper.emitted('primary-action')?.[0]).toEqual([null]);
+  });
+
+  it('targets the selected folder from the unified create menu', async () => {
+    const wrapper = mount(ExplorerTree, {
+      props: {
+        tree,
+        currentItemId: null,
+        primaryActionTitle: 'New inquiry',
+      },
+    });
+
+    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-primary-action]').trigger('click');
+
+    expect(wrapper.emitted('primary-action')?.[0]).toEqual(['folder-1']);
   });
 
   it('does not render a move button on item rows', () => {

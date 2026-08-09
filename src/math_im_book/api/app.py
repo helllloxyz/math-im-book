@@ -33,9 +33,11 @@ from math_im_book.api.schemas import (
     ExplorerItemIconUpdateSchema,
     ExplorerItemLocationResponseSchema,
     ExplorerItemLocationUpdateSchema,
+    ExplorerOrganizeResponseSchema,
     ExplorerTreeResponseSchema,
     KnowledgeDraftCandidateSchema,
     KnowledgeJobSchema,
+    KnowledgeNodeUpdateSchema,
     KnowledgeQueueItemSchema,
     MemoryScopeStateSchema,
     NodeResponseSchema,
@@ -91,6 +93,7 @@ from math_im_book.storage.answer_styles import FileAnswerStyleRepository
 from math_im_book.storage.credentials import FileCredentialRegistry
 from math_im_book.storage.explorer import (
     ExplorerError,
+    ExplorerFolder,
     ExplorerFolderConflictError,
     ExplorerInvalidMoveError,
     ExplorerStore,
@@ -1097,6 +1100,18 @@ def create_app(
             }
         )
 
+    @app.patch("/api/nodes/{node_id}", response_model=NodeResponseSchema)
+    def update_node(
+        node_id: str,
+        payload: KnowledgeNodeUpdateSchema,
+    ) -> NodeResponseSchema:
+        try:
+            node = knowledge_repository.get_node(node_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Node not found") from exc
+        knowledge_repository.save_node(replace(node, title=payload.title))
+        return get_node(node_id)
+
     @app.get("/api/sessions/{session_id}")
     def get_session(session_id: str) -> SessionSchema:
         record = sessions.load_record(session_id)
@@ -1160,6 +1175,7 @@ def create_app(
                 detail="Cannot delete a conversation that still has child branches",
             )
         sessions.delete_record(session_id)
+        explorer.remove_item(item_type="session", item_id=session_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post("/api/sessions/{session_id}/fork", response_model=SessionSchema)
@@ -1298,6 +1314,17 @@ def create_app(
             for record in records
         ]
 
+    def _ensure_explorer_item_exists(item_type: str, item_id: str) -> None:
+        if item_type == "session":
+            if sessions.load_record(item_id) is None:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            return
+        if item_type == "knowledge_node":
+            try:
+                knowledge_repository.get_node(item_id)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail="Knowledge note not found") from exc
+
     @app.get("/api/explorer/sessions", response_model=ExplorerTreeResponseSchema)
     def get_sessions_explorer() -> ExplorerTreeResponseSchema:
         return ExplorerTreeResponseSchema.model_validate(
@@ -1320,6 +1347,71 @@ def create_app(
                     items=_knowledge_explorer_items(),
                 ),
             }
+        )
+
+    @app.post(
+        "/api/explorer/knowledge/organize",
+        response_model=ExplorerOrganizeResponseSchema,
+    )
+    def organize_knowledge_explorer() -> ExplorerOrganizeResponseSchema:
+        folder_names = {
+            "definition": "Definitions",
+            "theorem": "Theorems",
+            "lemma": "Theorems",
+            "proposition": "Theorems",
+            "corollary": "Theorems",
+            "proof": "Proofs & Derivations",
+            "derivation": "Proofs & Derivations",
+            "example": "Examples & Applications",
+            "application": "Examples & Applications",
+        }
+        folder_sort_orders = {
+            "Definitions": 1000,
+            "Theorems": 2000,
+            "Proofs & Derivations": 3000,
+            "Examples & Applications": 4000,
+            "Concepts & Notes": 5000,
+        }
+        folders_created = 0
+        organized_count = 0
+        folders_by_name: dict[str, ExplorerFolder] = {}
+        for item in _knowledge_explorer_items():
+            item_id = str(item["item_id"])
+            location = explorer.find_location("knowledge_node", item_id)
+            if location is not None and (
+                location.folder_id is not None or location.user_locked
+            ):
+                continue
+            node_type = str(item.get("type") or "").strip().lower()
+            folder_name = folder_names.get(node_type, "Concepts & Notes")
+            folder = folders_by_name.get(folder_name)
+            if folder is None:
+                folder = explorer.find_folder(
+                    scope="knowledge",
+                    name=folder_name,
+                    parent_folder_id=None,
+                )
+                if folder is None:
+                    folder = explorer.create_folder(
+                        scope="knowledge",
+                        name=folder_name,
+                        parent_folder_id=None,
+                        sort_order=folder_sort_orders[folder_name],
+                    )
+                    folders_created += 1
+                folders_by_name[folder_name] = folder
+            explorer.move_item(
+                item_type="knowledge_node",
+                item_id=item_id,
+                folder_id=folder.folder_id,
+                sort_order=1000,
+                location_source="agent",
+            )
+            organized_count += 1
+        return ExplorerOrganizeResponseSchema(
+            scope="knowledge",
+            organized_count=organized_count,
+            folders_created=folders_created,
         )
 
     @app.post("/api/explorer/folders", response_model=ExplorerFolderResponseSchema)
@@ -1381,6 +1473,7 @@ def create_app(
         item_id: str,
         payload: ExplorerItemLocationUpdateSchema,
     ) -> ExplorerItemLocationResponseSchema:
+        _ensure_explorer_item_exists(item_type, item_id)
         try:
             location = explorer.move_item(
                 item_type=item_type,
@@ -1404,6 +1497,7 @@ def create_app(
         item_id: str,
         payload: ExplorerItemIconUpdateSchema,
     ) -> ExplorerItemIconResponseSchema:
+        _ensure_explorer_item_exists(item_type, item_id)
         try:
             item_icon = explorer.set_item_icon(
                 item_type=item_type,
