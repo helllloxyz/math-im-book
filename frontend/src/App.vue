@@ -1,103 +1,132 @@
 <template>
-  <div class="app-shell flex h-screen overflow-hidden bg-surface">
-    <!-- 1. SideNavBar (Slim Rail) -->
-    <aside class="flex flex-col h-full py-8 bg-slate-950 w-20 items-center z-50">
-      <div class="mb-12">
-        <span class="text-primary-fixed font-serif font-bold text-2xl">Σ</span>
+  <div class="app-shell">
+    <button
+      v-if="!isSidebarOpen"
+      class="mobile-nav-trigger"
+      type="button"
+      aria-label="Open navigation"
+      @click="isSidebarOpen = true"
+    >
+      <span class="material-symbols-outlined" aria-hidden="true">menu</span>
+    </button>
+
+    <div
+      v-if="isSidebarOpen"
+      class="mobile-nav-backdrop"
+      aria-hidden="true"
+      @click="isSidebarOpen = false"
+    ></div>
+
+    <aside class="workspace-sidebar" :class="{ 'is-open': isSidebarOpen }">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">∑</div>
+        <div>
+          <p class="brand-name">Mathbook</p>
+          <p class="brand-note">Think in context</p>
+        </div>
+        <button
+          class="mobile-nav-close"
+          type="button"
+          aria-label="Close navigation"
+          @click="isSidebarOpen = false"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
       </div>
-      <nav class="flex flex-col gap-10 flex-1">
+
+      <button class="new-inquiry-button" type="button" @click="startNewInquiry">
+        <span class="material-symbols-outlined" aria-hidden="true">add</span>
+        <span>New inquiry</span>
+        <kbd>N</kbd>
+      </button>
+
+      <nav class="workspace-switcher" aria-label="Workspace views">
         <button
-          @click="activeTab = 'chat'"
-          class="flex flex-col items-center gap-1 group transition-all"
-          :class="activeTab === 'chat' ? 'text-primary-fixed' : 'text-slate-500 hover:text-slate-300'"
+          type="button"
+          :class="{ active: activeTab === 'chat' || activeTab === 'agent' }"
+          @click="showConversations"
         >
-          <span class="material-symbols-outlined text-2xl" :style="activeTab === 'chat' ? 'font-variation-settings: \'FILL\' 1;' : ''">space_dashboard</span>
-          <span class="font-sans text-[9px] uppercase tracking-tighter">Workspace</span>
+          <span class="material-symbols-outlined" aria-hidden="true">forum</span>
+          Conversations
         </button>
         <button
-          @click="activeTab = 'book'"
-          class="flex flex-col items-center gap-1 group transition-all"
-          :class="activeTab === 'book' ? 'text-primary-fixed' : 'text-slate-500 hover:text-slate-300'"
+          type="button"
+          :class="{ active: activeTab === 'book' }"
+          @click="showLibrary"
         >
-          <span class="material-symbols-outlined text-2xl" :style="activeTab === 'book' ? 'font-variation-settings: \'FILL\' 1;' : ''">local_library</span>
-          <span class="font-sans text-[9px] uppercase tracking-tighter">Library</span>
-        </button>
-        <button
-          @click="activeTab = 'agent'"
-          class="flex flex-col items-center gap-1 group transition-all"
-          :class="activeTab === 'agent' ? 'text-primary-fixed' : 'text-slate-500 hover:text-slate-300'"
-        >
-          <span class="material-symbols-outlined text-2xl" :style="activeTab === 'agent' ? 'font-variation-settings: \'FILL\' 1;' : ''">schema</span>
-          <span class="font-sans text-[9px] uppercase tracking-tighter">Agent</span>
+          <span class="material-symbols-outlined" aria-hidden="true">library_books</span>
+          Library
         </button>
       </nav>
-      <div class="mt-auto">
+
+      <div class="sidebar-content">
+        <div v-if="activeTab === 'chat' || activeTab === 'agent'" class="sidebar-section">
+          <SessionTree />
+          <div v-if="!sessions.length" class="sidebar-empty">
+            <span class="material-symbols-outlined" aria-hidden="true">chat_bubble_outline</span>
+            <p>Your conversations will collect here.</p>
+          </div>
+        </div>
+
+        <div v-else class="sidebar-section">
+          <BookOutline />
+          <div v-if="!outline.length" class="sidebar-empty">
+            <span class="material-symbols-outlined" aria-hidden="true">auto_stories</span>
+            <p>Knowledge notes appear as you explore.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="system-status">
+          <span class="status-dot"></span>
+          <span>Local workspace</span>
+        </div>
         <GlobalSettings />
       </div>
     </aside>
 
-    <!-- 2. Exploration Sidebar -->
-    <aside class="w-72 bg-surface-container-low flex flex-col border-r-0">
-      <div class="p-6">
-        <h1 class="font-serif italic text-xl text-primary mb-1">The Scriptorium</h1>
-        <p
-          v-if="activeTab === 'agent'"
-          data-sidebar-context-label
-          class="font-sans text-[10px] text-on-surface-variant/50 uppercase tracking-widest"
-        >
-          Agent State
-        </p>
-      </div>
-      
-      <div class="flex-1 overflow-y-auto px-4 space-y-8">
-        <div v-if="activeTab === 'chat'" class="space-y-6">
-          <SessionTree />
-          <div v-if="!sessions.length" class="px-2 py-4 italic text-sm text-on-surface-variant/60 font-serif">
-            Begin a new inquiry to see branches here.
+    <main class="conversation-workspace">
+      <header class="workspace-header">
+        <div class="workspace-title-block">
+          <button
+            v-if="activeTab === 'agent'"
+            class="back-button"
+            type="button"
+            aria-label="Back to conversation"
+            @click="showConversations"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+          </button>
+          <div>
+            <p class="workspace-kicker">
+              {{ activeTab === 'agent' ? 'Response details' : 'Conversation' }}
+            </p>
+            <h1>{{ workspaceTitle }}</h1>
           </div>
         </div>
 
-        <div v-if="activeTab === 'book'" class="space-y-6">
-          <BookOutline />
-          <div v-if="!outline.length" class="px-2 py-4 italic text-sm text-on-surface-variant/60 font-serif">
-            Reference nodes appear as you explore.
+        <div class="workspace-actions">
+          <div v-if="loading" class="working-status" role="status">
+            <span class="working-dot"></span>
+            Thinking
           </div>
-        </div>
-      </div>
-    </aside>
-
-    <!-- 3. Main Workspace -->
-    <main class="flex-1 flex flex-col relative bg-surface-container-lowest">
-      <header class="glass-panel sticky top-0 z-20 flex justify-between items-center w-full px-12 h-20">
-        <div class="flex items-center gap-8">
-          <span class="text-lg font-serif italic text-primary">Inquiry Workspace</span>
-          <nav class="hidden md:flex gap-6">
-            <span class="font-sans uppercase tracking-widest text-[10px] text-primary border-b-2 border-primary pb-1 cursor-default">Derivation</span>
-            <span class="font-sans uppercase tracking-widest text-[10px] text-on-surface-variant/40 hover:text-primary transition-colors cursor-pointer">Intuition</span>
-            <span class="font-sans uppercase tracking-widest text-[10px] text-on-surface-variant/40 hover:text-primary transition-colors cursor-pointer">Verification</span>
-          </nav>
-        </div>
-        <div class="flex items-center gap-6">
-          <div v-if="loading" class="flex items-center gap-2 px-3 py-1 bg-primary-fixed rounded-full text-[10px] text-primary animate-pulse">
-            <span class="material-symbols-outlined text-xs animate-spin">progress_activity</span>
-            Updating
-          </div>
-          <ModelSettings />
+          <ModelSettings v-if="activeTab !== 'agent'" />
         </div>
       </header>
 
-      <div ref="scrollContainer" class="flex-1 overflow-y-auto scroll-smooth">
+      <div ref="scrollContainer" class="workspace-scroll">
         <AgentStatePage v-if="activeTab === 'agent'" />
 
         <div
           v-else-if="currentSession && currentSession.messages.length"
-          class="max-w-4xl mx-auto p-8 space-y-4"
+          class="conversation-transcript"
           data-chat-transcript
         >
-          <transition-group name="fade">
+          <transition-group name="message">
             <ChatMessage
               v-for="msg in currentSession.messages"
-              :key="msg.message_id" 
+              :key="msg.message_id"
               :message="msg"
               :session-id="currentSession?.session_id"
               :assistant-name="assistantName"
@@ -110,37 +139,49 @@
             />
           </transition-group>
         </div>
-        
-        <div v-else class="max-w-3xl mx-auto py-20 p-12">
-          <div class="flex flex-col items-center text-center space-y-8">
-            <div class="w-16 h-16 rounded-full bg-primary-fixed flex items-center justify-center text-primary">
-              <span class="material-symbols-outlined text-3xl">lightbulb_outline</span>
-            </div>
-            <div>
-              <h2 class="text-4xl font-serif mb-4">Inquire of the Scriptorium</h2>
-              <p class="text-on-surface-variant/70 leading-relaxed font-serif text-lg">
-                Ask for a proof, a derivation, or a physical intuition. Our synthesis engines are at your service.
-              </p>
-            </div>
+
+        <section v-else class="empty-workspace">
+          <div class="empty-orbit" aria-hidden="true">
+            <span>∫</span>
           </div>
-        </div>
+          <p class="empty-eyebrow">A quiet place to work things out</p>
+          <h2>Start with a question.</h2>
+          <p class="empty-description">
+            Ask for a proof, unpack an intuition, or check a derivation. Useful ideas can be saved to your library as you go.
+          </p>
+          <div class="prompt-suggestions" aria-label="Example questions">
+            <button type="button" @click="usePrompt('Explain the core intuition before the formal proof.')">
+              Explain the intuition
+              <span class="material-symbols-outlined" aria-hidden="true">north_east</span>
+            </button>
+            <button type="button" @click="usePrompt('Derive this result step by step and state every assumption.')">
+              Build a derivation
+              <span class="material-symbols-outlined" aria-hidden="true">north_east</span>
+            </button>
+            <button type="button" @click="usePrompt('Check my reasoning and identify the first incorrect step.')">
+              Check my reasoning
+              <span class="material-symbols-outlined" aria-hidden="true">north_east</span>
+            </button>
+          </div>
+        </section>
       </div>
 
-      <footer class="p-8 max-w-4xl mx-auto w-full">
-        <ChatComposer @ask="store.ask" :loading="loading" />
+      <footer v-if="activeTab !== 'agent'" class="composer-dock">
+        <ChatComposer :loading="loading" @ask="store.ask" />
       </footer>
     </main>
 
-    <!-- 4. Right Library Panel -->
     <aside
+      v-if="currentNode"
       data-reader-panel-shell
-      class="bg-surface flex flex-col border-l border-outline-variant/10 transition-[width] duration-300 ease-out"
-      :class="isReaderExpanded ? 'w-[780px]' : 'w-[520px]'"
+      class="reader-panel-shell"
+      :class="{ expanded: isReaderExpanded }"
     >
       <ReaderPanel
-        :key="currentNode?.id || 'empty'"
+        :key="currentNode.id"
         :is-expanded="isReaderExpanded"
         @toggle-expanded="isReaderExpanded = !isReaderExpanded"
+        @close="closeReader"
       />
     </aside>
 
@@ -149,7 +190,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import SessionTree from './components/explorer/SessionTree.vue'
 import BookOutline from './components/explorer/BookOutline.vue'
 import AgentStatePage from './components/agent/AgentStatePage.vue'
@@ -160,7 +202,6 @@ import GlobalSettings from './components/explorer/GlobalSettings.vue'
 import ReaderPanel from './components/reader/ReaderPanel.vue'
 import SelectionActionMenu from './components/common/SelectionActionMenu.vue'
 import { useWorkspaceStore } from './stores/workspace'
-import { storeToRefs } from 'pinia'
 
 const store = useWorkspaceStore()
 const { sessions, outline, currentSession, currentNode, loading, activeTab } = storeToRefs(store)
@@ -182,8 +223,14 @@ const assistantName = computed(() => {
   return assistantNames[hashSeed(seed) % assistantNames.length]
 })
 
+const workspaceTitle = computed(() => {
+  if (activeTab.value === 'agent') return 'How this response was made'
+  return currentSession.value?.title || 'New inquiry'
+})
+
 const scrollContainer = ref<HTMLElement | null>(null)
 const isReaderExpanded = ref(false)
+const isSidebarOpen = ref(false)
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -194,11 +241,11 @@ const scrollToBottom = async () => {
 
 watch(
   () => {
-    const msgs = currentSession.value?.messages
-    if (!msgs?.length) return null
-    return msgs[msgs.length - 1]?.content
+    const messages = currentSession.value?.messages
+    if (!messages?.length) return null
+    return messages[messages.length - 1]?.content
   },
-  () => { scrollToBottom() }
+  scrollToBottom
 )
 
 onMounted(() => {
@@ -210,9 +257,36 @@ onMounted(() => {
   store.fetchCredentials()
 })
 
+const showConversations = () => {
+  activeTab.value = 'chat'
+  isSidebarOpen.value = false
+}
+
+const showLibrary = () => {
+  activeTab.value = 'book'
+  isSidebarOpen.value = false
+}
+
+const startNewInquiry = () => {
+  store.newSession()
+  activeTab.value = 'chat'
+  isSidebarOpen.value = false
+}
+
+const usePrompt = (prompt: string) => store.setDraftQuestion(prompt)
+
+const closeReader = () => {
+  currentNode.value = null
+  isReaderExpanded.value = false
+}
+
 const handleFork = (messageId: string) => store.fork(messageId)
 const handleRegenerate = (messageId: string) => store.regenerate(messageId)
-const handleReviewState = (messageId: string) => store.openAgentStateForMessage(messageId)
+const handleReviewState = async (messageId: string) => {
+  store.openAgentStateForMessage(messageId)
+  await nextTick()
+  if (scrollContainer.value) scrollContainer.value.scrollTop = 0
+}
 const handleAnchorClick = (anchor: { node_id?: string | null }) => {
   if (anchor.node_id) store.selectNode(anchor.node_id)
 }
@@ -228,13 +302,3 @@ const isLatestMessage = (messageId: string) => {
   return messages[messages.length - 1]?.message_id === messageId
 }
 </script>
-
-<style>
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-  transform: translateY(10px);
-}
-</style>

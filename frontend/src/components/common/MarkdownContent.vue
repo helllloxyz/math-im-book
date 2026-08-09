@@ -61,5 +61,5 @@ onUpdated(() => {
 </script>
 
 <template>
-  <div ref="root" class="markdown-content prose dark:prose-invert max-w-none" :class="markdownThemeClass" v-html="renderedHtml"></div>
+  <div ref="root" class="markdown-content prose max-w-none" :class="markdownThemeClass" v-html="renderedHtml"></div>
 </template>

@@ -8,7 +8,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'ask', question: string): void
+  (event: 'ask', question: string): void
 }>()
 
 const store = useWorkspaceStore()
@@ -37,54 +37,49 @@ const isNewSession = computed(() => !currentSession.value?.session_id)
 
 const submit = () => {
   if (!draftQuestion.value.trim() || props.loading) return
-  const q = draftQuestion.value
-  emit('ask', q)
+  const question = draftQuestion.value
+  emit('ask', question)
   store.setDraftQuestion('')
 }
 
-const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
     submit()
   }
 }
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl w-full">
-    <div
-      data-chat-composer-shell
-      class="relative flex flex-col gap-2 bg-surface-container-low rounded-2xl p-3 shadow-sm ghost-border"
-    >
-      <div data-chat-composer-input-row class="flex items-end gap-3">
+  <div class="composer-wrap">
+    <div data-chat-composer-shell class="composer-shell">
+      <div data-chat-composer-input-row class="composer-input-row">
         <textarea
           v-model="draftQuestion"
-          @keydown="handleKeydown"
-          placeholder="Inquire of the Scriptorium..."
-          class="flex-1 bg-transparent border-none focus:ring-0 font-serif text-base leading-6 resize-none placeholder:text-on-surface-variant/40 outline-none"
           rows="2"
           :disabled="loading"
+          aria-label="Question"
+          placeholder="Ask a mathematical question…"
+          @keydown="handleKeydown"
         ></textarea>
         <button
-          @click="submit"
+          class="send-button"
+          type="button"
           :disabled="!draftQuestion.trim() || loading"
-          class="w-10 h-10 bg-primary text-on-primary rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed shrink-0"
           aria-label="Send message"
+          @click="submit"
         >
-          <span class="material-symbols-outlined text-[18px]">send</span>
+          <span class="material-symbols-outlined">arrow_upward</span>
         </button>
       </div>
 
-      <div data-chat-composer-controls class="flex flex-wrap gap-3 pt-1 border-t border-outline-variant/10">
-        <div class="space-y-1">
-          <label class="flex items-center gap-2">
-            <span class="font-sans text-[10px] uppercase tracking-widest text-on-surface-variant/60">Answer style</span>
-            <select
-              v-model="selectedAnswerStyleValue"
-              aria-label="Answer style"
-              class="rounded border border-transparent bg-surface-container px-2 py-1 font-sans text-[11px] text-on-surface outline-none transition-colors hover:border-outline-variant/20 focus:border-primary-container/40"
-            >
-              <option value="">No extra style</option>
+      <div data-chat-composer-controls class="composer-controls">
+        <div class="composer-options">
+          <label>
+            <span class="material-symbols-outlined" aria-hidden="true">format_quote</span>
+            <span class="sr-only">Answer style</span>
+            <select v-model="selectedAnswerStyleValue" aria-label="Answer style">
+              <option value="">Natural response</option>
               <option
                 v-for="style in selectableAnswerStyles"
                 :key="style.answer_style_id"
@@ -94,16 +89,11 @@ const handleKeydown = (e: KeyboardEvent) => {
               </option>
             </select>
           </label>
-        </div>
-        <div class="space-y-1">
-          <label class="flex items-center gap-2">
-            <span class="font-sans text-[10px] uppercase tracking-widest text-on-surface-variant/60">Strategy</span>
-            <select
-              v-model="selectedStrategyAgentId"
-              aria-label="Strategy"
-              :disabled="!isNewSession"
-              class="rounded border border-transparent bg-surface-container px-2 py-1 font-sans text-[11px] text-on-surface outline-none transition-colors hover:border-outline-variant/20 focus:border-primary-container/40 disabled:cursor-not-allowed disabled:opacity-50"
-            >
+
+          <label v-if="isNewSession && strategyAgents.length">
+            <span class="material-symbols-outlined" aria-hidden="true">route</span>
+            <span class="sr-only">Strategy</span>
+            <select v-model="selectedStrategyAgentId" aria-label="Strategy">
               <option
                 v-for="agent in strategyAgents"
                 :key="agent.strategy_agent_id"
@@ -114,15 +104,170 @@ const handleKeydown = (e: KeyboardEvent) => {
             </select>
           </label>
         </div>
+        <span class="composer-hint">Enter to send · Shift Enter for a new line</span>
       </div>
     </div>
-    
-    <p
-      v-if="errorMessage"
-      role="alert"
-      class="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-700 font-sans"
-    >
+
+    <p v-if="errorMessage" role="alert" class="composer-error">
+      <span class="material-symbols-outlined">error</span>
       {{ errorMessage }}
     </p>
   </div>
 </template>
+
+<style scoped>
+.composer-wrap {
+  width: 100%;
+  max-width: 850px;
+  margin: 0 auto;
+}
+
+.composer-shell {
+  overflow: hidden;
+  border: 1px solid rgb(32 35 31 / 0.14);
+  border-radius: 16px;
+  background: #fffdf7;
+  box-shadow: 0 14px 40px rgb(32 35 31 / 0.09), 0 1px 1px rgb(32 35 31 / 0.08);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.composer-shell:focus-within {
+  border-color: rgb(25 63 58 / 0.42);
+  box-shadow: 0 18px 48px rgb(32 35 31 / 0.12), 0 0 0 3px rgb(216 232 223 / 0.5);
+}
+
+.composer-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 13px 13px 9px 17px;
+}
+
+textarea {
+  min-height: 48px;
+  flex: 1;
+  resize: none;
+  border: 0;
+  outline: 0;
+  color: var(--color-on-surface);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+textarea::placeholder {
+  color: rgb(95 98 91 / 0.55);
+}
+
+.send-button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border: 0;
+  border-radius: 11px;
+  color: #fffdf7;
+  background: var(--color-primary);
+  box-shadow: 0 5px 12px rgb(25 63 58 / 0.18);
+  transition: background-color 150ms ease, transform 150ms ease, opacity 150ms ease;
+}
+
+.send-button:hover:not(:disabled) {
+  background: #c86f3d;
+  transform: translateY(-1px);
+}
+
+.send-button:disabled {
+  cursor: default;
+  opacity: 0.26;
+  box-shadow: none;
+}
+
+.send-button .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.composer-controls {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 13px 7px 14px;
+  border-top: 1px solid rgb(32 35 31 / 0.065);
+}
+
+.composer-options {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.composer-options label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  color: var(--color-on-surface-variant);
+  background: transparent;
+}
+
+.composer-options label:hover {
+  background: var(--color-surface-container-low);
+}
+
+.composer-options .material-symbols-outlined {
+  margin-left: 6px;
+  font-size: 14px;
+}
+
+select {
+  max-width: 150px;
+  min-height: 25px;
+  border: 0;
+  outline: 0;
+  color: inherit;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+
+.composer-hint {
+  flex: 0 0 auto;
+  color: rgb(95 98 91 / 0.52);
+  font-family: var(--font-sans);
+  font-size: 9px;
+}
+
+.composer-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 2px 0;
+  padding: 8px 12px;
+  border: 1px solid rgb(171 53 42 / 0.15);
+  border-radius: 9px;
+  color: #8f3027;
+  background: #fff2ef;
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+
+.composer-error .material-symbols-outlined {
+  font-size: 15px;
+}
+
+@media (max-width: 640px) {
+  .composer-hint {
+    display: none;
+  }
+
+  .composer-controls {
+    justify-content: flex-start;
+  }
+}
+</style>

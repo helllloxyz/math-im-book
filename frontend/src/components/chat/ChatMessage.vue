@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { KnowledgeAnchor, SessionMessage } from '../../services/api'
 import MarkdownContent from '../common/MarkdownContent.vue'
 
@@ -12,15 +12,15 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'fork', messageId: string): void
-  (e: 'copy', content: string): void
-  (e: 'regenerate', messageId: string): void
-  (e: 'anchor-click', anchor: KnowledgeAnchor): void
-  (e: 'review-state', messageId: string): void
+  (event: 'fork', messageId: string): void
+  (event: 'copy', content: string): void
+  (event: 'regenerate', messageId: string): void
+  (event: 'anchor-click', anchor: KnowledgeAnchor): void
+  (event: 'review-state', messageId: string): void
 }>()
 
+const copied = ref(false)
 const assistantAnchors = computed(() => props.message.assistant_context.anchors || [])
-
 const isAssistant = computed(() => props.message.role === 'assistant')
 const roleLabel = computed(() => (isAssistant.value ? props.assistantName || 'Gauss' : 'You'))
 const isThinking = computed(
@@ -33,128 +33,343 @@ const isThinking = computed(
 const canOpenAnchor = (anchor: KnowledgeAnchor) => anchor.status === 'ready' && !!anchor.node_id
 
 const openAnchor = (anchor: KnowledgeAnchor) => {
-  if (!canOpenAnchor(anchor)) return
-  emit('anchor-click', anchor)
+  if (canOpenAnchor(anchor)) emit('anchor-click', anchor)
 }
 
-const copyContent = () => {
-  navigator.clipboard.writeText(props.message.content)
+const copyContent = async () => {
+  await navigator.clipboard.writeText(props.message.content)
+  copied.value = true
+  window.setTimeout(() => { copied.value = false }, 1200)
   emit('copy', props.message.content)
 }
 </script>
 
 <template>
-  <div class="mb-6 flex flex-col group" :class="isAssistant ? 'items-start' : 'items-center'">
-    <!-- Identity Header (Stitch style) -->
-    <div v-if="isAssistant" class="flex items-center gap-2 mb-3 px-1.5" data-assistant-header>
-      <div
-        class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary shadow-sm"
-        data-assistant-icon
-      >
-        <span class="material-symbols-outlined text-base">functions</span>
-      </div>
-      <div>
-        <p class="stitch-label text-primary">{{ roleLabel }}</p>
-        <p class="font-sans text-[10px] text-on-surface-variant/60">Synthesized Proof Engine</p>
-      </div>
+  <div class="message-row" :class="isAssistant ? 'assistant-message' : 'user-message'">
+    <div v-if="isAssistant" class="message-identity" data-assistant-header>
+      <div class="assistant-mark" data-assistant-icon>∑</div>
+      <span>{{ roleLabel }}</span>
     </div>
 
-    <!-- Article Style Container -->
-    <article
-      :class="[
-        'w-full transition-all duration-500',
-        isAssistant 
-          ? 'stitch-article' 
-          : 'max-w-2xl bg-surface-container-high/40 rounded-xl p-4 border-l-4 border-primary/20 italic font-serif'
-      ]"
-    >
+    <article class="message-card" :class="{ 'question-card': !isAssistant }">
       <div
-        class="space-y-3"
+        class="message-content"
         :data-selection-source="isThinking ? undefined : 'chat-message'"
         :data-message-id="isThinking ? undefined : message.message_id"
         :data-session-id="isThinking ? undefined : sessionId || undefined"
       >
-        <div
-          v-if="isThinking"
-          class="inline-flex items-center gap-3 text-sm text-on-surface-variant/70 animate-pulse"
-          data-thinking-indicator
-        >
-          <span class="material-symbols-outlined animate-spin text-primary">progress_activity</span>
-          思考中...
+        <div v-if="isThinking" class="thinking-indicator" data-thinking-indicator>
+          <span></span><span></span><span></span>
+          <em>Working through it</em>
         </div>
         <MarkdownContent v-else :content="message.content" />
       </div>
 
-      <!-- Anchors / Knowledge Links -->
-      <div
-        v-if="isAssistant && assistantAnchors.length"
-        class="mt-4 flex flex-wrap gap-1.5 pt-3 border-t border-outline-variant/10"
-        data-anchor-list
-      >
+      <div v-if="isAssistant && assistantAnchors.length" class="knowledge-links" data-anchor-list>
+        <span class="knowledge-label">Saved ideas</span>
         <button
           v-for="anchor in assistantAnchors"
           :key="anchor.anchor_id"
           :data-anchor-id="anchor.anchor_id"
           :disabled="!canOpenAnchor(anchor)"
-          class="inline-flex items-center rounded-full px-2 py-0.5 font-sans text-[11px] font-medium transition-all"
-          :class="canOpenAnchor(anchor)
-            ? 'bg-primary-fixed text-primary hover:bg-primary-container hover:text-on-primary'
-            : 'bg-surface-container-high text-on-surface-variant/40 opacity-60'"
+          type="button"
           @click="openAnchor(anchor)"
         >
-          <span>{{ anchor.label }}</span>
+          {{ anchor.label }}
+          <span v-if="canOpenAnchor(anchor)" class="material-symbols-outlined">arrow_outward</span>
+          <span v-else class="anchor-status">{{ anchor.status }}</span>
         </button>
       </div>
 
-      <!-- Orchestration Plan Strip -->
       <div
         v-if="isAssistant && message.assistant_context.orchestration_plan"
-        class="mt-3 flex items-start justify-between gap-2 rounded-md border border-outline-variant/15 bg-surface-container-low px-2.5 py-1.5"
+        class="response-details"
         data-agent-plan-strip
       >
-        <p class="font-sans text-[11px] leading-snug text-on-surface-variant">
-          {{ message.assistant_context.orchestration_plan.user_visible_summary }}
-        </p>
-        <button
-          class="shrink-0 rounded bg-primary-fixed px-2 py-0.5 font-sans text-[9px] uppercase tracking-widest text-primary hover:bg-primary transition-colors"
-          @click="emit('review-state', message.message_id)"
-        >
-          Review
+        <p>{{ message.assistant_context.orchestration_plan.user_visible_summary }}</p>
+        <button type="button" @click="emit('review-state', message.message_id)">
+          View details
+          <span class="material-symbols-outlined">arrow_forward</span>
         </button>
       </div>
 
-      <!-- Interaction Bar (Only for Assistant) -->
-      <div
-        v-if="isAssistant"
-        class="mt-0 flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-        data-message-actions
-      >
-        <button 
-          @click="emit('fork', message.message_id)" 
-          class="w-6 h-6 flex items-center justify-center rounded-full text-on-surface-variant/40 hover:bg-primary-fixed hover:text-primary transition-colors"
-          title="Fork session"
-          data-message-action
-        >
-          <span class="material-symbols-outlined text-[11px]">alt_route</span>
+      <div v-if="isAssistant && !isThinking" class="message-actions" data-message-actions>
+        <button type="button" title="Fork conversation" data-message-action @click="emit('fork', message.message_id)">
+          <span class="material-symbols-outlined">alt_route</span>
+          Fork
         </button>
-        <button 
-          @click="copyContent" 
-          class="w-6 h-6 flex items-center justify-center rounded-full text-on-surface-variant/40 hover:bg-primary-fixed hover:text-primary transition-colors"
-          title="Copy"
-          data-message-action
-        >
-          <span class="material-symbols-outlined text-[11px]">content_copy</span>
+        <button type="button" title="Copy response" data-message-action @click="copyContent">
+          <span class="material-symbols-outlined">{{ copied ? 'check' : 'content_copy' }}</span>
+          {{ copied ? 'Copied' : 'Copy' }}
         </button>
         <button
           v-if="canRegenerate"
-          @click="emit('regenerate', message.message_id)" 
-          class="w-6 h-6 flex items-center justify-center rounded-full text-on-surface-variant/40 hover:bg-primary-fixed hover:text-primary transition-colors"
-          title="Regenerate"
+          type="button"
+          title="Regenerate response"
           data-message-action
+          @click="emit('regenerate', message.message_id)"
         >
-          <span class="material-symbols-outlined text-[11px]">cached</span>
+          <span class="material-symbols-outlined">refresh</span>
+          Retry
         </button>
       </div>
     </article>
   </div>
 </template>
+
+<style scoped>
+.message-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 26px;
+}
+
+.assistant-message {
+  align-items: stretch;
+}
+
+.user-message {
+  align-items: flex-end;
+}
+
+.message-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px 3px;
+  color: var(--color-on-surface-variant);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.assistant-mark {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--color-primary);
+  background: var(--color-primary-fixed);
+  font-family: var(--font-serif);
+  font-size: 14px;
+}
+
+.message-card {
+  position: relative;
+  width: 100%;
+}
+
+.assistant-message .message-card {
+  padding: 24px 27px 10px;
+  border: 1px solid rgb(32 35 31 / 0.075);
+  border-radius: 16px;
+  background: rgb(255 253 247 / 0.82);
+  box-shadow: 0 1px 0 rgb(32 35 31 / 0.04);
+}
+
+.user-message .message-card {
+  width: auto;
+  max-width: 78%;
+  padding: 12px 16px;
+  border: 1px solid rgb(25 63 58 / 0.12);
+  border-radius: 14px 14px 4px 14px;
+  color: var(--color-on-surface);
+  background: var(--color-primary-fixed);
+  box-shadow: 0 1px 0 rgb(25 63 58 / 0.05);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.message-content {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.68;
+}
+
+.user-message .message-content {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.user-message :deep(.markdown-content) {
+  color: var(--color-on-surface);
+  --tw-prose-body: var(--color-on-surface);
+  --tw-prose-headings: var(--color-on-surface);
+  --tw-prose-links: var(--color-primary);
+  --tw-prose-bold: var(--color-on-surface);
+  --tw-prose-counters: var(--color-on-surface-variant);
+  --tw-prose-bullets: var(--color-on-surface-variant);
+  --tw-prose-quotes: var(--color-on-surface);
+  --tw-prose-code: var(--color-on-surface);
+}
+
+.thinking-indicator {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-on-surface-variant);
+}
+
+.thinking-indicator span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c86f3d;
+  animation: thinking 1.2s ease-in-out infinite;
+}
+
+.thinking-indicator span:nth-child(2) { animation-delay: 120ms; }
+.thinking-indicator span:nth-child(3) { animation-delay: 240ms; }
+
+.thinking-indicator em {
+  margin-left: 6px;
+  font-size: 13px;
+}
+
+.knowledge-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgb(32 35 31 / 0.075);
+}
+
+.knowledge-label {
+  margin-right: 3px;
+  color: rgb(95 98 91 / 0.62);
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.knowledge-links button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-primary);
+  background: var(--color-primary-fixed);
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+
+.knowledge-links button:disabled {
+  cursor: default;
+  color: rgb(95 98 91 / 0.62);
+  background: var(--color-surface-container-low);
+}
+
+.knowledge-links .material-symbols-outlined {
+  font-size: 12px;
+}
+
+.anchor-status {
+  opacity: 0.65;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.response-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-surface-container-low);
+  font-family: var(--font-sans);
+}
+
+.response-details p {
+  margin: 0;
+  color: var(--color-on-surface-variant);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.response-details button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  color: var(--color-primary);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.response-details .material-symbols-outlined {
+  font-size: 12px;
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-height: 30px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions {
+  opacity: 1;
+}
+
+.message-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 5px;
+  color: rgb(95 98 91 / 0.68);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 9px;
+}
+
+.message-actions button:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-fixed);
+}
+
+.message-actions .material-symbols-outlined {
+  font-size: 13px;
+}
+
+@keyframes thinking {
+  0%, 100% { opacity: 0.26; transform: translateY(1px); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+@media (max-width: 640px) {
+  .assistant-message .message-card {
+    padding: 19px 18px 8px;
+  }
+
+  .user-message .message-card {
+    max-width: 90%;
+  }
+
+  .message-actions {
+    opacity: 1;
+  }
+}
+</style>

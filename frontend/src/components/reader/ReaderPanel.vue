@@ -12,6 +12,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'toggle-expanded'): void;
+  (e: 'close'): void;
 }>();
 
 const node = computed(() => store.currentNode);
@@ -44,15 +45,20 @@ const markdownDetail = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden bg-surface text-on-surface">
+  <div class="reader-panel flex h-full flex-col overflow-hidden bg-surface text-on-surface">
     <!-- Header -->
-    <div class="h-20 flex shrink-0 items-center justify-between gap-4 px-6 border-b border-outline-variant/10">
+    <div class="flex h-[74px] shrink-0 items-center justify-between gap-4 border-b border-outline-variant/10 px-6">
       <div class="min-w-0 flex items-center gap-3 text-on-surface-variant/60">
-        <span class="material-symbols-outlined text-[20px]" :title="currentTypeMeta.label">{{ currentTypeMeta.icon }}</span>
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-fixed text-primary material-symbols-outlined text-[18px]" :title="currentTypeMeta.label">{{ currentTypeMeta.icon }}</span>
+        <div>
+          <p class="font-sans text-[9px] font-semibold uppercase tracking-[0.14em] text-on-surface-variant/60">Knowledge note</p>
+          <p class="max-w-[260px] truncate font-sans text-[12px] font-medium text-on-surface">{{ node?.title }}</p>
+        </div>
       </div>
       <div class="flex shrink-0 items-center text-on-surface-variant/40">
         <button
           :title="isExpanded ? 'Restore preview' : 'Expand preview'"
+          :aria-label="isExpanded ? 'Restore note width' : 'Expand note width'"
           data-reader-action="toggle-width"
           class="hover:text-primary transition-colors flex items-center justify-center w-8 h-8 rounded-full hover:bg-primary-fixed"
           @click="emit('toggle-expanded')"
@@ -61,6 +67,15 @@ const markdownDetail = computed(() => {
             {{ isExpanded ? 'close_fullscreen' : 'open_in_full' }}
           </span>
         </button>
+        <button
+          title="Close note"
+          aria-label="Close note"
+          data-reader-action="close"
+          class="hover:text-primary transition-colors flex items-center justify-center w-8 h-8 rounded-full hover:bg-primary-fixed"
+          @click="emit('close')"
+        >
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </button>
       </div>
     </div>
 
@@ -68,15 +83,15 @@ const markdownDetail = computed(() => {
     <div class="flex-1 overflow-y-auto px-8 py-10 scroll-smooth">
       <article
         v-if="node"
-        class="mx-auto space-y-12 transition-[max-width] duration-300 ease-out"
+        class="mx-auto space-y-10 transition-[max-width] duration-300 ease-out"
         :class="isExpanded ? 'max-w-[58rem]' : 'max-w-2xl'"
       >
         <div class="space-y-6">
-          <h1 class="font-serif italic text-4xl leading-tight text-primary">
+          <h1 class="font-serif text-4xl font-medium leading-tight tracking-[-0.025em] text-primary">
             {{ node.title }}
           </h1>
 
-          <div v-if="node.detail && node.summary" class="border-l-2 border-primary/20 pl-6 font-serif text-xl leading-relaxed text-on-surface-variant italic">
+          <div v-if="node.detail && node.summary" class="border-l-2 border-[#c86f3d]/50 pl-5 font-serif text-lg leading-relaxed text-on-surface-variant italic">
             {{ node.summary }}
           </div>
         </div>

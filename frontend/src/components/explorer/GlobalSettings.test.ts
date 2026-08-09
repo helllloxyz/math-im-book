@@ -10,6 +10,22 @@ describe('GlobalSettings', () => {
     setActivePinia(pinia);
   });
 
+  it('establishes a light color scheme inside the sidebar-hosted dialog', async () => {
+    const wrapper = mount(GlobalSettings, {
+      global: {
+        plugins: [createPinia()],
+      },
+    });
+
+    await wrapper.get('button[title="Global Settings"]').trigger('click');
+
+    expect(wrapper.get('button[title="Global Settings"]').classes()).toContain('global-settings-trigger');
+    const dialog = wrapper.get('[role="dialog"]');
+    expect(dialog.classes()).toContain('settings-dialog-surface');
+    expect(dialog.attributes('aria-modal')).toBe('true');
+    expect(dialog.attributes('aria-labelledby')).toBe('system-configuration-title');
+  });
+
   it('saves provider-specific config with provider_id, model and base_url', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);

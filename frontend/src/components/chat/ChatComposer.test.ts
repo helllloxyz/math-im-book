@@ -21,14 +21,12 @@ describe('ChatComposer', () => {
     const textarea = wrapper.get('textarea')
     const controls = wrapper.get('[data-chat-composer-controls]')
 
-    expect(shell.classes()).toContain('gap-2')
-    expect(shell.classes()).toContain('p-3')
-    expect(inputRow.classes()).toContain('gap-3')
+    expect(shell.classes()).toContain('composer-shell')
+    expect(inputRow.classes()).toContain('composer-input-row')
     expect(textarea.attributes('rows')).toBe('2')
-    expect(textarea.classes()).toContain('text-base')
-    expect(textarea.classes()).toContain('leading-6')
-    expect(controls.classes()).toContain('gap-3')
-    expect(controls.classes()).toContain('pt-1')
+    expect(textarea.attributes('aria-label')).toBe('Question')
+    expect(controls.classes()).toContain('composer-controls')
+    expect(wrapper.text()).toContain('Enter to send')
   })
 
   it('submits the current draft on Enter and clears it', async () => {

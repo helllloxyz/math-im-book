@@ -17,6 +17,7 @@
           class="explorer-tree-header-action"
           data-explorer-primary-action
           :title="primaryActionTitle"
+          :aria-label="primaryActionTitle"
           @click="emit('primary-action')"
         >
           <span class="material-symbols-outlined text-[16px]">{{ primaryActionIcon || 'add_box' }}</span>
@@ -26,6 +27,7 @@
           class="explorer-tree-header-action"
           data-explorer-create-root-folder
           :title="rootActionTitle || 'New folder'"
+          :aria-label="rootActionTitle || 'New folder'"
           @click="emit('create-folder', null)"
         >
           <span class="material-symbols-outlined text-[16px]">create_new_folder</span>

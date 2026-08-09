@@ -13,7 +13,7 @@ describe('AgentStatePage', () => {
     setActivePinia(pinia);
   });
 
-  it('renders current turn, memory scope, knowledge queue, and recent decisions', () => {
+  it('renders the latest response, knowledge activity, memory scope, and recent decisions', () => {
     const store = useWorkspaceStore();
     store.agentState = {
       current_turn: {
@@ -47,8 +47,9 @@ describe('AgentStatePage', () => {
 
     const wrapper = mount(AgentStatePage, { global: { plugins: [pinia] } });
 
-    expect(wrapper.text()).toContain('Current Turn');
-    expect(wrapper.text()).toContain('answer_then_suggest_drafts');
+    expect(wrapper.text()).toContain('Latest response');
+    expect(wrapper.text()).toContain('Answer then suggest drafts');
+    expect(wrapper.text()).toContain('Knowledge activity');
     expect(wrapper.text()).toContain('Memory Scope');
     expect(wrapper.text()).toContain('linear-algebra');
     expect(wrapper.text()).toContain('Vector Space');
@@ -189,11 +190,13 @@ describe('AgentStatePage', () => {
     const wrapper = mount(AgentStatePage, { global: { plugins: [pinia] } });
 
     expect(wrapper.text()).toContain('Loading agent review');
-    expect(wrapper.text()).toContain('Selected Review');
-    expect(wrapper.text()).toContain('answer_then_suggest_drafts');
+    expect(wrapper.text()).toContain('Response approach');
+    expect(wrapper.text()).toContain('Answer then suggest drafts');
     expect(wrapper.text()).toContain('先回答，再建议沉淀草稿。');
     expect(wrapper.text()).toContain('Vector Space');
-    expect(wrapper.text()).toContain('suggested');
+    expect(wrapper.findAll('[data-primary-knowledge] [data-knowledge-item]')).toHaveLength(1);
+    expect(wrapper.find('[data-other-knowledge]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Keep the useful parts');
     expect(fetchAgentState).not.toHaveBeenCalled();
   });
 
@@ -293,6 +296,6 @@ describe('AgentStatePage', () => {
 
     expect(wrapper.find('[data-draft-index="0"]').exists()).toBe(false);
     expect(wrapper.find('[data-compile-selected-drafts]').exists()).toBe(false);
-    expect(wrapper.text()).toContain('writing');
+    expect(wrapper.text()).toContain('Creating');
   });
 });

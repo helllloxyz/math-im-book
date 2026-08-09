@@ -321,10 +321,11 @@ const saveDefaultOptions = async () => {
   <div class="relative">
     <button
       @click="openModal"
-      class="flex h-10 w-10 items-center justify-center rounded-xl text-on-surface-variant/40 transition-colors hover:bg-surface-container-high hover:text-on-surface"
+      class="global-settings-trigger flex h-10 w-10 items-center justify-center rounded-xl text-on-surface-variant/40 transition-colors hover:bg-surface-container-high hover:text-on-surface"
       title="Global Settings"
+      aria-label="Open settings"
     >
-      <span class="material-symbols-outlined text-[24px]">settings</span>
+      <span class="material-symbols-outlined text-[24px]" aria-hidden="true">settings</span>
     </button>
 
     <div
@@ -332,10 +333,15 @@ const saveDefaultOptions = async () => {
       class="fixed inset-0 z-[100] grid place-items-center bg-on-surface/20 px-4 backdrop-blur-sm"
       @click.self="isOpen = false"
     >
-      <div class="flex max-h-[84vh] w-[min(94vw,900px)] flex-col overflow-hidden rounded-3xl bg-surface-container-lowest shadow-2xl ghost-border">
+      <div
+        class="settings-dialog-surface flex max-h-[84vh] w-[min(94vw,900px)] flex-col overflow-hidden rounded-3xl bg-surface-container-lowest shadow-2xl ghost-border"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="system-configuration-title"
+      >
         <div class="flex items-start justify-between gap-4 border-b border-outline-variant/10 bg-surface-container-low px-6 py-5">
           <div>
-            <h3 class="flex items-center gap-2 font-serif text-xl font-bold text-primary">
+            <h3 id="system-configuration-title" class="flex items-center gap-2 font-serif text-xl font-bold text-primary">
               <span class="material-symbols-outlined text-[22px]">settings</span>
               System Configuration
             </h3>
@@ -343,8 +349,8 @@ const saveDefaultOptions = async () => {
               Configure providers and select the global default conversation and utility models.
             </p>
           </div>
-          <button @click="isOpen = false" class="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/40 transition-colors hover:bg-primary-fixed hover:text-primary">
-            <span class="material-symbols-outlined text-[22px]">close</span>
+          <button @click="isOpen = false" class="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/40 transition-colors hover:bg-primary-fixed hover:text-primary" aria-label="Close settings">
+            <span class="material-symbols-outlined text-[22px]" aria-hidden="true">close</span>
           </button>
         </div>
 
@@ -545,3 +551,10 @@ const saveDefaultOptions = async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.settings-dialog-surface {
+  color: var(--color-on-surface);
+  color-scheme: light;
+}
+</style>

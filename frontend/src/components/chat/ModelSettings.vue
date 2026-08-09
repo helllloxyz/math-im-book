@@ -67,8 +67,9 @@ const open = () => {
       @click="open"
       class="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/40 transition-colors hover:bg-primary-fixed hover:text-primary"
       title="Model Settings"
+      aria-label="Choose conversation model"
     >
-      <span class="material-symbols-outlined text-[20px]">tune</span>
+      <span class="material-symbols-outlined text-[20px]" aria-hidden="true">tune</span>
     </button>
 
     <div

@@ -6,7 +6,7 @@ vi.mock('./components/chat/ChatMessage.vue', () => ({
   default: {
     name: 'ChatMessage',
     props: ['message', 'assistantName', 'canRegenerate', 'isLoading'],
-    emits: ['regenerate', 'anchor-click'],
+    emits: ['regenerate', 'anchor-click', 'review-state'],
     template: `
       <div
         data-stub="chat-message"
@@ -19,6 +19,13 @@ vi.mock('./components/chat/ChatMessage.vue', () => ({
           @click="$emit('regenerate', message.message_id)"
         >
           {{ message.message_id }}
+        </button>
+        <button
+          v-if="message.role === 'assistant'"
+          data-stub="review-state"
+          @click="$emit('review-state', message.message_id)"
+        >
+          Review
         </button>
         <button
           v-for="anchor in (message.assistant_context?.anchors || [])"
@@ -52,15 +59,18 @@ vi.mock('./components/reader/ReaderPanel.vue', () => ({
   default: {
     name: 'ReaderPanel',
     props: ['isExpanded'],
-    emits: ['toggle-expanded'],
+    emits: ['toggle-expanded', 'close'],
     template: `
-      <button
-        data-stub="reader-panel"
-        :data-expanded="isExpanded ? 'true' : 'false'"
-        @click="$emit('toggle-expanded')"
-      >
-        Reader
-      </button>
+      <div>
+        <button
+          data-stub="reader-panel"
+          :data-expanded="isExpanded ? 'true' : 'false'"
+          @click="$emit('toggle-expanded')"
+        >
+          Reader
+        </button>
+        <button data-stub="close-reader" @click="$emit('close')">Close</button>
+      </div>
     `,
   },
 }));
@@ -215,7 +225,7 @@ describe('App new session flow', () => {
     expect(store.selectedAnswerStyleId).toBe('rigorous');
   });
 
-  it('shows a text-only empty chat state without starter prompt buttons', async () => {
+  it('shows a focused empty state with useful starter prompts', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
@@ -228,11 +238,12 @@ describe('App new session flow', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('Inquire of the Scriptorium');
+    expect(wrapper.text()).toContain('Start with a question.');
     expect(wrapper.text()).toContain(
-      'Ask for a proof, a derivation, or a physical intuition. Our synthesis engines are at your service.'
+      'Ask for a proof, unpack an intuition, or check a derivation.'
     );
-    expect(wrapper.text()).not.toContain('Begin Inquiry');
+    await wrapper.get('[aria-label="Example questions"] button').trigger('click');
+    expect(store.draftQuestion).toBe('Explain the core intuition before the formal proof.');
   });
 
   it('routes regenerate from the latest assistant message to the store', async () => {
@@ -484,7 +495,7 @@ describe('App new session flow', () => {
     });
 
     expect(wrapper.find('.loading-overlay').exists()).toBe(false);
-    expect(wrapper.text()).toContain('Updating');
+    expect(wrapper.text()).toContain('Thinking');
   });
 
   it('keeps the chat transcript spacing compact', async () => {
@@ -535,9 +546,39 @@ describe('App new session flow', () => {
 
     const transcript = wrapper.get('[data-chat-transcript]');
 
-    expect(transcript.classes()).toEqual(expect.arrayContaining(['p-8', 'space-y-4']));
-    expect(transcript.classes()).not.toContain('p-12');
-    expect(transcript.classes()).not.toContain('space-y-12');
+    expect(transcript.classes()).toContain('conversation-transcript');
+  });
+
+  it('starts response details at the top after opening them from a long conversation', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    mockStartupFetches(store);
+    vi.spyOn(store, 'fetchAgentState').mockResolvedValue(undefined);
+    store.currentSession = {
+      session_id: 'chat-1',
+      title: 'Current session',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [
+        {
+          message_id: 'msg_assistant_1',
+          role: 'assistant',
+          content: 'A long answer',
+          assistant_context: { referenced_node_ids: [], symbol_conflicts: [], alignment_notes: [] },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      ],
+    } as any;
+
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
+    const scroll = wrapper.get('.workspace-scroll').element as HTMLElement;
+    scroll.scrollTop = 420;
+
+    await wrapper.get('[data-stub="review-state"]').trigger('click');
+    await vi.waitFor(() => expect(scroll.scrollTop).toBe(0));
+
+    expect(store.activeTab).toBe('agent');
+    expect(store.focusedAgentMessageId).toBe('msg_assistant_1');
   });
 
   it('uses one assistant persona name for every assistant message in a session', async () => {
@@ -624,6 +665,7 @@ describe('App new session flow', () => {
     setActivePinia(pinia);
     const store = useWorkspaceStore();
     mockStartupFetches(store);
+    store.currentNode = { id: 'node-1', title: 'A note' } as any;
 
     const wrapper = mount(App, {
       global: {
@@ -634,17 +676,34 @@ describe('App new session flow', () => {
     const panel = () => wrapper.get('[data-reader-panel-shell]');
     const reader = () => wrapper.get('[data-stub="reader-panel"]');
 
-    expect(panel().classes()).toContain('w-[520px]');
+    expect(panel().classes()).not.toContain('expanded');
     expect(reader().attributes('data-expanded')).toBe('false');
 
     await reader().trigger('click');
 
-    expect(panel().classes()).toContain('w-[780px]');
+    expect(panel().classes()).toContain('expanded');
     expect(reader().attributes('data-expanded')).toBe('true');
 
     await reader().trigger('click');
 
-    expect(panel().classes()).toContain('w-[520px]');
+    expect(panel().classes()).not.toContain('expanded');
     expect(reader().attributes('data-expanded')).toBe('false');
+  });
+
+  it('keeps the reader out of the workspace until a note is selected and lets it close', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    mockStartupFetches(store);
+
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
+    expect(wrapper.find('[data-reader-panel-shell]').exists()).toBe(false);
+
+    store.currentNode = { id: 'node-1', title: 'A note' } as any;
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-reader-panel-shell]').exists()).toBe(true);
+
+    await wrapper.get('[data-stub="close-reader"]').trigger('click');
+    expect(store.currentNode).toBeNull();
   });
 });

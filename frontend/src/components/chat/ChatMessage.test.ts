@@ -5,6 +5,31 @@ import { createPinia } from 'pinia';
 import ChatMessage from './ChatMessage.vue';
 
 describe('ChatMessage anchors', () => {
+  it('uses the light question surface for user messages', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: {
+          message_id: 'msg_user_question',
+          role: 'user',
+          content: '介绍下群表示论',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+          },
+          created_at: '2026-04-02T09:00:00Z',
+        },
+      },
+      global: {
+        plugins: [createPinia()],
+      },
+    });
+
+    expect(wrapper.classes()).toContain('user-message');
+    expect(wrapper.get('.message-card').classes()).toContain('question-card');
+  });
+
   it('marks selectable chat content with source metadata', () => {
     const wrapper = mount(ChatMessage, {
       props: {
@@ -142,7 +167,7 @@ describe('ChatMessage anchors', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('思考中');
+    expect(wrapper.text()).toContain('Working through it');
     expect(wrapper.find('[data-thinking-indicator]').exists()).toBe(true);
   });
 
@@ -286,18 +311,10 @@ describe('ChatMessage anchors', () => {
       },
     });
 
-    expect(wrapper.get('[data-anchor-id="anchor-ready"]').text().replace(/\s+/g, ' ')).toBe(
-      'Linear Algebra'
-    );
-    expect(wrapper.get('[data-anchor-id="anchor-pending"]').text().replace(/\s+/g, ' ')).toBe(
-      'Draft pending'
-    );
-    expect(wrapper.get('[data-anchor-id="anchor-failed"]').text().replace(/\s+/g, ' ')).toBe(
-      'Draft failed'
-    );
-    expect(wrapper.get('[data-anchor-id="anchor-suggested"]').text().replace(/\s+/g, ' ')).toBe(
-      'Suggested theorem'
-    );
+    expect(wrapper.get('[data-anchor-id="anchor-ready"]').text()).toContain('Linear Algebra');
+    expect(wrapper.get('[data-anchor-id="anchor-pending"]').text()).toContain('Draft pending');
+    expect(wrapper.get('[data-anchor-id="anchor-failed"]').text()).toContain('Draft failed');
+    expect(wrapper.get('[data-anchor-id="anchor-suggested"]').text()).toContain('Suggested theorem');
     expect(wrapper.find('[data-anchor-link-icon]').exists()).toBe(false);
   });
 
@@ -344,7 +361,7 @@ describe('ChatMessage anchors', () => {
     const planStrip = wrapper.get('[data-agent-plan-strip]');
 
     expect(planStrip.text()).toContain('我将先整理流形定义、例子和应用，再给出答案。');
-    expect(planStrip.text()).toContain('Review');
+    expect(planStrip.text()).toContain('View details');
     expect(planStrip.text()).not.toContain('Agent:');
     expect(planStrip.text()).not.toContain('draft_first_then_answer');
     expect(planStrip.text()).not.toContain('No specific user profile');
@@ -397,29 +414,26 @@ describe('ChatMessage anchors', () => {
       },
     });
 
-    expect(wrapper.classes()).toContain('mb-6');
-    expect(wrapper.classes()).not.toContain('mb-12');
+    expect(wrapper.classes()).toEqual(expect.arrayContaining(['message-row', 'assistant-message']));
 
     const assistantHeader = wrapper.get('[data-assistant-header]');
-    expect(assistantHeader.classes()).toEqual(expect.arrayContaining(['gap-2', 'mb-3']));
+    expect(assistantHeader.classes()).toContain('message-identity');
 
     const anchors = wrapper.get('[data-anchor-list]');
-    expect(anchors.classes()).toEqual(expect.arrayContaining(['mt-4', 'gap-1.5', 'pt-3']));
+    expect(anchors.classes()).toContain('knowledge-links');
 
     const anchorButton = wrapper.get('[data-anchor-id="anchor-ready"]');
-    expect(anchorButton.classes()).toEqual(expect.arrayContaining(['px-2', 'py-0.5', 'text-[11px]']));
     expect(anchorButton.find('[data-anchor-link-icon]').exists()).toBe(false);
-    expect(anchorButton.text().replace(/\s+/g, ' ')).toBe('Linear Algebra');
+    expect(anchorButton.text()).toContain('Linear Algebra');
 
     const planStrip = wrapper.get('[data-agent-plan-strip]');
-    expect(planStrip.classes()).toEqual(expect.arrayContaining(['mt-3', 'px-2.5', 'py-1.5']));
+    expect(planStrip.classes()).toContain('response-details');
 
     const actionBar = wrapper.get('[data-message-actions]');
-    expect(actionBar.classes()).toEqual(expect.arrayContaining(['mt-0', 'gap-1.5']));
+    expect(actionBar.classes()).toContain('message-actions');
 
     for (const action of wrapper.findAll('[data-message-action]')) {
-      expect(action.classes()).toEqual(expect.arrayContaining(['w-6', 'h-6']));
-      expect(action.find('.material-symbols-outlined').classes()).toContain('text-[11px]');
+      expect(action.find('.material-symbols-outlined').exists()).toBe(true);
     }
   });
 });
