@@ -86,18 +86,47 @@ describe('ExplorerTree', () => {
     expect(wrapper.text()).not.toContain('Linear Map');
   });
 
-  it('selects folders from the full row and leaves expansion to the chevron', async () => {
+  it('keeps only the folder selected when a folder row is clicked', async () => {
+    const wrapper = mount(ExplorerTree, {
+      props: {
+        tree,
+        currentItemId: 'linear-map',
+      },
+    });
+
+    expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).toContain('tree-item-active');
+    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
+    expect(wrapper.text()).not.toContain('Linear Map');
+    expect(wrapper.get('[data-explorer-folder="folder-1"]').classes()).toContain('tree-folder-active');
+    expect(wrapper.get('[data-explorer-folder="folder-1"]').attributes('aria-selected')).toBe('true');
+
+    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
+    expect(wrapper.text()).toContain('Linear Map');
+    expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).not.toContain('tree-item-active');
+    expect(wrapper.get('[data-explorer-item="linear-map"]').attributes('aria-selected')).toBe('false');
+  });
+
+  it('selects a file exclusively and uses its containing folder as the create base', async () => {
     const wrapper = mount(ExplorerTree, {
       props: {
         tree,
         currentItemId: null,
+        primaryActionTitle: 'New inquiry',
       },
     });
 
     await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
-    expect(wrapper.text()).toContain('Linear Map');
-    expect(wrapper.get('[data-explorer-folder="folder-1"]').classes()).toContain('tree-folder-active');
-    expect(wrapper.get('[data-explorer-folder="folder-1"]').attributes('aria-selected')).toBe('true');
+    await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
+    await wrapper.get('[data-explorer-item="linear-map"]').trigger('click');
+
+    expect(wrapper.get('[data-explorer-folder="folder-1"]').classes()).not.toContain('tree-folder-active');
+    expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).toContain('tree-item-active');
+    expect(wrapper.get('[data-explorer-item="linear-map"]').attributes('aria-selected')).toBe('true');
+
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-primary-action]').trigger('click');
+
+    expect(wrapper.emitted('primary-action')?.[0]).toEqual(['folder-1']);
   });
 
   it('emits select and create-folder actions', async () => {

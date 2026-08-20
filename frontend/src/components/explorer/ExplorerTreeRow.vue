@@ -12,10 +12,9 @@
       tabindex="0"
       :aria-expanded="isExpanded ? 'true' : 'false'"
       :aria-selected="isFolderActive ? 'true' : 'false'"
-      @click="selectFolder"
-      @dblclick="toggleFolder"
-      @keydown.enter.prevent="selectFolder"
-      @keydown.space.prevent="selectFolder"
+      @click="selectAndToggleFolder"
+      @keydown.enter.prevent="selectAndToggleFolder"
+      @keydown.space.prevent="selectAndToggleFolder"
       @dragenter.prevent.stop="dragOverFolder = true"
       @dragover.prevent.stop="handleFolderDragOver"
       @dragleave="dragOverFolder = false"
@@ -111,13 +110,13 @@
     :title="itemPath"
     role="button"
     tabindex="0"
+    :aria-selected="isActive ? 'true' : 'false'"
     draggable="true"
     @click="selectItem"
     @keydown.enter.prevent="selectItem"
     @keydown.space.prevent="selectItem"
     @dragstart="handleDragStart"
   >
-    <span class="explorer-tree-spacer"></span>
     <span v-if="canEditIcon" class="explorer-tree-icon-anchor" @click.stop>
       <button
         type="button"
@@ -237,7 +236,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  (event: 'select-item', itemType: ExplorerItemType, itemId: string): void;
+  (event: 'select-item', itemType: ExplorerItemType, itemId: string, folderId: string | null): void;
   (event: 'move-item', itemType: ExplorerItemType, itemId: string, folderId: string | null): void;
   (event: 'select-folder', folderId: string): void;
   (event: 'request-rename-folder', folderId: string, name: string): void;
@@ -287,7 +286,7 @@ const itemTitle = computed(() => String(
 ));
 const isSessionItem = computed(() => currentItemType.value === 'session');
 const isActive = computed(() => props.currentItemId === currentItemId.value);
-const rowIndent = computed(() => ({ paddingLeft: `${props.depth * 14 + 6}px` }));
+const rowIndent = computed(() => ({ paddingLeft: `${props.depth * 18 + 4}px` }));
 const canEditIcon = computed(() =>
   props.editableItemIcons || (props.editableSessionIcons && isSessionItem.value)
 );
@@ -371,8 +370,17 @@ const handleDragStart = (event: DragEvent) => {
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
 };
 
-const selectItem = () => emit('select-item', currentItemType.value, currentItemId.value);
+const selectItem = () => emit(
+  'select-item',
+  currentItemType.value,
+  currentItemId.value,
+  props.node.location?.folder_id || null
+);
 const selectFolder = () => emit('select-folder', folderId.value);
+const selectAndToggleFolder = () => {
+  selectFolder();
+  toggleFolder();
+};
 const closeMenus = () => {
   actionMenuOpen.value = false;
   iconPickerOpen.value = false;

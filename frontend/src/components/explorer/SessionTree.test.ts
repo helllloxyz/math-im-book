@@ -87,6 +87,38 @@ describe('SessionTree', () => {
     expect(newSessionSpy).toHaveBeenCalledWith(null);
   });
 
+  it('starts a new conversation in the selected file containing folder', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    store.sessionExplorerTree = [
+      {
+        kind: 'folder',
+        folder: { folder_id: 'folder-1', scope: 'sessions', name: 'Course' },
+        children: [
+          {
+            kind: 'item',
+            item: { item_type: 'session', item_id: 'chat-1', title: 'Spectral Theorem' },
+            location: { item_type: 'session', item_id: 'chat-1', folder_id: 'folder-1' },
+            children: [],
+          },
+        ],
+      },
+    ] as any;
+    const selectSpy = vi.spyOn(store, 'selectSession').mockResolvedValue(undefined);
+    const newSessionSpy = vi.spyOn(store, 'newSession');
+
+    const wrapper = mount(SessionTree, { global: { plugins: [pinia] } });
+
+    await wrapper.get('[data-explorer-item="chat-1"]').trigger('click');
+    expect(selectSpy).toHaveBeenCalledWith('chat-1');
+
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-primary-action]').trigger('click');
+
+    expect(newSessionSpy).toHaveBeenCalledWith('folder-1');
+  });
+
   it('updates session icons from the row picker', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);

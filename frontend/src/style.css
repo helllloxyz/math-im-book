@@ -703,18 +703,18 @@ input:focus-visible {
 .explorer-tree-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .explorer-tree-row {
   position: relative;
   display: flex;
   width: 100%;
-  min-height: 30px;
+  min-height: 26px;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 6px;
   color: #5c5e56;
   line-height: 1;
   text-align: left;
@@ -733,25 +733,19 @@ input:focus-visible {
 
 .explorer-tree-item,
 .explorer-tree-folder {
-  padding-top: 3px;
-  padding-right: 5px;
-  padding-bottom: 3px;
+  padding-top: 1px;
+  padding-right: 3px;
+  padding-bottom: 1px;
 }
 
 .tree-item-active,
-.tree-item-active:hover {
-  border-color: #e2c7b4;
-  color: #3f3027;
-  background: #f5e4d7;
-  box-shadow: inset 3px 0 0 #bd7549;
-}
-
+.tree-item-active:hover,
 .tree-folder-active,
 .tree-folder-active:hover {
   border-color: #cbd7ce;
   color: #29483e;
-  background: #e3ebe4;
-  box-shadow: inset 3px 0 0 #5f8977;
+  background: #dfe8e1;
+  box-shadow: inset 2px 0 0 #5f8977;
 }
 
 .explorer-tree-drop-target {
@@ -762,10 +756,10 @@ input:focus-visible {
 
 .explorer-tree-toggle,
 .explorer-tree-action {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border-radius: 5px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 4px;
 }
 
 .explorer-tree-toggle {
@@ -864,11 +858,6 @@ input:focus-visible {
   background: #dfe8e1;
 }
 
-.explorer-tree-spacer {
-  width: 20px;
-  flex: 0 0 20px;
-}
-
 .explorer-tree-label {
   min-width: 0;
   flex: 1 1 auto;
@@ -880,7 +869,7 @@ input:focus-visible {
 .explorer-tree-menu-anchor {
   position: relative;
   display: inline-flex;
-  flex: 0 0 20px;
+  flex: 0 0 18px;
   margin-left: 1px;
 }
 

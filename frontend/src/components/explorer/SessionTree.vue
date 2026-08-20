@@ -19,6 +19,7 @@
     @rename-item="handleRenameItem"
     @delete-item="handleDeleteItem"
     @primary-action="handleNewInquiry"
+    @base-folder-change="store.setConversationBaseFolder"
     @update-session-icon="handleUpdateSessionIcon"
   />
 </template>

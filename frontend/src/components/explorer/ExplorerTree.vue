@@ -13,10 +13,10 @@
         v-if="title"
         type="button"
         class="explorer-tree-scope"
-        :class="{ 'is-root-active': !selectedFolderId }"
+        :class="{ 'is-root-active': !selectedFolderId && !selectedItemId }"
         data-explorer-root-select
         title="Select top level"
-        @click="selectedFolderId = null"
+        @click="selectRoot"
       >
         <h3 class="explorer-tree-title">{{ title }}</h3>
       </button>
@@ -25,8 +25,8 @@
           type="button"
           class="explorer-tree-header-action explorer-create-trigger"
           data-explorer-create-menu
-          :title="`Add to ${selectedFolderName || title || 'top level'}`"
-          :aria-label="`Create in ${selectedFolderName || title || 'top level'}`"
+          :title="`Add to ${baseFolderName || title || 'top level'}`"
+          :aria-label="`Create in ${baseFolderName || title || 'top level'}`"
           aria-haspopup="menu"
           :aria-expanded="createMenuOpen ? 'true' : 'false'"
           @click="createMenuOpen = !createMenuOpen"
@@ -48,7 +48,7 @@
             type="button"
             role="menuitem"
             data-explorer-create-folder
-            @click="openCreateFolder(selectedFolderId)"
+            @click="openCreateFolder(baseFolderId)"
           >
             <span class="material-symbols-outlined" aria-hidden="true">create_new_folder</span>
             New folder
@@ -78,14 +78,14 @@
         :key="nodeKey(node)"
         :node="node"
         :depth="0"
-        :current-item-id="currentItemId"
+        :current-item-id="selectedItemId"
         :selected-folder-id="selectedFolderId"
         :force-expanded="Boolean(normalizedQuery)"
         :editable-session-icons="editableSessionIcons"
         :editable-item-icons="editableItemIcons"
         :can-rename-items="canRenameItems"
         :can-delete-items="canDeleteItems"
-        @select-item="(...args) => emit('select-item', ...args)"
+        @select-item="selectItem"
         @move-item="(...args) => emit('move-item', ...args)"
         @select-folder="selectFolder"
         @request-rename-folder="openRenameFolder"
@@ -225,7 +225,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { ExplorerItemType, ExplorerTreeNode } from '../../services/api';
 import ExplorerTreeRow from './ExplorerTreeRow.vue';
 
@@ -265,6 +265,7 @@ const emit = defineEmits<{
   (event: 'rename-item', itemType: ExplorerItemType, itemId: string, name: string): void;
   (event: 'delete-item', itemType: ExplorerItemType, itemId: string): void;
   (event: 'primary-action', folderId: string | null): void;
+  (event: 'base-folder-change', folderId: string | null): void;
   (event: 'update-session-icon', sessionId: string, icon: string): void;
   (event: 'update-item-icon', itemType: ExplorerItemType, itemId: string, icon: string): void;
 }>();
@@ -281,6 +282,8 @@ const EXPLORER_DRAG_MIME = 'application/x-math-im-book-explorer-item';
 const query = ref('');
 const dragOverRoot = ref(false);
 const selectedFolderId = ref<string | null>(null);
+const selectedItemId = ref<string | null>(props.currentItemId);
+const baseFolderId = ref<string | null>(null);
 const createMenuOpen = ref(false);
 const dialog = ref<DialogState | null>(null);
 const draftName = ref('');
@@ -288,8 +291,8 @@ const moveDestination = ref('');
 const nameInput = ref<HTMLInputElement | null>(null);
 
 const normalizedQuery = computed(() => query.value.trim().toLocaleLowerCase());
-const selectedFolderName = computed(() =>
-  folderOptions.value.find((folder) => folder.id === selectedFolderId.value)?.path || ''
+const baseFolderName = computed(() =>
+  folderOptions.value.find((folder) => folder.id === baseFolderId.value)?.path || ''
 );
 
 const nodeKey = (node: ExplorerTreeNode) =>
@@ -300,6 +303,26 @@ const nodeKey = (node: ExplorerTreeNode) =>
 const itemTitle = (node: ExplorerTreeNode) => String(
   node.item?.title || node.item?.session_id || node.item?.id || node.item?.item_id || 'Untitled'
 );
+
+const itemId = (node: ExplorerTreeNode) => String(
+  node.location?.item_id || node.item?.item_id || node.item?.session_id || node.item?.id || ''
+);
+
+const findItemFolderId = (
+  nodes: ExplorerTreeNode[],
+  targetItemId: string
+): string | null | undefined => {
+  for (const node of nodes) {
+    if (node.kind === 'item' && itemId(node) === targetItemId) {
+      return node.location?.folder_id || null;
+    }
+    if (node.kind === 'folder') {
+      const match = findItemFolderId(node.children, targetItemId);
+      if (match !== undefined) return match;
+    }
+  }
+  return undefined;
+};
 
 const filterNodes = (nodes: ExplorerTreeNode[]): ExplorerTreeNode[] => {
   const needle = normalizedQuery.value;
@@ -357,13 +380,31 @@ const openCreateFolder = (parentFolderId: string | null) => {
   draftName.value = '';
   void focusNameInput();
 };
+const selectRoot = () => {
+  selectedFolderId.value = null;
+  selectedItemId.value = null;
+  baseFolderId.value = null;
+  createMenuOpen.value = false;
+  emit('base-folder-change', null);
+};
 const selectFolder = (folderId: string) => {
   selectedFolderId.value = folderId;
+  selectedItemId.value = null;
+  baseFolderId.value = folderId;
   createMenuOpen.value = false;
+  emit('base-folder-change', folderId);
+};
+const selectItem = (itemType: ExplorerItemType, selectedId: string, folderId: string | null) => {
+  selectedItemId.value = selectedId;
+  selectedFolderId.value = null;
+  baseFolderId.value = folderId;
+  createMenuOpen.value = false;
+  emit('base-folder-change', folderId);
+  emit('select-item', itemType, selectedId);
 };
 const runPrimaryAction = () => {
   createMenuOpen.value = false;
-  emit('primary-action', selectedFolderId.value);
+  emit('primary-action', baseFolderId.value);
 };
 const openRenameFolder = (folderId: string, name: string) => {
   dialog.value = { kind: 'name', mode: 'rename-folder', folderId };
@@ -481,6 +522,33 @@ const handleGlobalKeydown = (event: KeyboardEvent) => {
     document.querySelector<HTMLInputElement>('[data-explorer-search]')?.focus();
   }
 };
+
+watch(
+  () => props.currentItemId,
+  (currentItemId) => {
+    selectedItemId.value = currentItemId;
+    if (!currentItemId) return;
+    selectedFolderId.value = null;
+    const folderId = findItemFolderId(props.tree, currentItemId);
+    if (folderId !== undefined) {
+      baseFolderId.value = folderId;
+      emit('base-folder-change', folderId);
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.tree,
+  (tree) => {
+    if (!selectedItemId.value) return;
+    const folderId = findItemFolderId(tree, selectedItemId.value);
+    if (folderId !== undefined) {
+      baseFolderId.value = folderId;
+      emit('base-folder-change', folderId);
+    }
+  }
+);
 
 onMounted(() => document.addEventListener('keydown', handleGlobalKeydown));
 onBeforeUnmount(() => document.removeEventListener('keydown', handleGlobalKeydown));

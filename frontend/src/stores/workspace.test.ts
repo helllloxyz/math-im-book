@@ -838,6 +838,18 @@ describe('workspace store provider configuration', () => {
     expect(store.newSessionFolderId).toBeNull();
   });
 
+  it('uses the remembered conversation base folder for shortcut-created sessions', () => {
+    const store = useWorkspaceStore();
+
+    store.setConversationBaseFolder('folder-course');
+    store.newSession();
+
+    expect(store.newSessionFolderId).toBe('folder-course');
+
+    store.newSession(null);
+    expect(store.newSessionFolderId).toBeNull();
+  });
+
   it('polls knowledge jobs and updates the latest assistant anchors in place', async () => {
     vi.useFakeTimers();
     vi.mocked(api.askStream).mockImplementation(

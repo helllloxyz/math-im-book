@@ -71,6 +71,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const selectedProviderProfile = ref<ProviderProfile | null>(null);
   const draftQuestion = ref('');
   const newSessionFolderId = ref<string | null>(null);
+  const conversationBaseFolderId = ref<string | null>(null);
   const activeTab = ref<'chat' | 'book' | 'agent'>('chat');
   const agentState = ref<AgentState | null>(null);
   const agentStateLoading = ref(false);
@@ -1076,7 +1077,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  function newSession(folderId: string | null = null) {
+  function setConversationBaseFolder(folderId: string | null) {
+    conversationBaseFolderId.value = folderId;
+  }
+
+  function newSession(folderId?: string | null) {
     cancelKnowledgeJobPolling();
     const nextProfile =
       normalizeProviderProfile(selectedProviderProfile.value) ||
@@ -1088,7 +1093,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectedProviderProfile.value = nextProfile;
     selectedStrategyAgentId.value = defaultStrategyAgentId();
     selectedAnswerStyleId.value = null;
-    newSessionFolderId.value = folderId;
+    newSessionFolderId.value = folderId === undefined
+      ? conversationBaseFolderId.value
+      : folderId;
   }
 
   watch(
@@ -1147,6 +1154,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectedProviderProfile,
     draftQuestion,
     newSessionFolderId,
+    conversationBaseFolderId,
     activeTab,
     agentState,
     agentStateLoading,
@@ -1178,6 +1186,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectNode,
     ask,
     regenerate,
+    setConversationBaseFolder,
     newSession,
     fork,
     deleteSession,
