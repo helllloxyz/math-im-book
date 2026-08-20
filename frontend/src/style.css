@@ -139,13 +139,15 @@ input:focus-visible {
   place-items: center;
   border: 1px solid #cad8ce;
   border-radius: 14px;
-  color: #315b4e;
   background: #e2ebe4;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.72), 0 4px 12px rgb(48 67 57 / 0.08);
-  font-family: var(--font-serif);
-  font-size: 24px;
-  font-weight: 600;
-  line-height: 1;
+}
+
+.brand-mark-image {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .brand-name {

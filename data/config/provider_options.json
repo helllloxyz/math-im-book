@@ -96,13 +96,13 @@
       "provider_id": "deepseek",
       "provider_type": "openai_compatible",
       "credential_id": "deepseek",
-      "model": "deepseek-chat"
+      "model": "deepseek-v4-flash"
     },
     "utility_model": {
       "provider_id": "deepseek",
       "provider_type": "openai_compatible",
       "credential_id": "deepseek",
-      "model": "deepseek-chat"
+      "model": "deepseek-v4-flash"
     },
     "markdown_theme": "academic"
   }

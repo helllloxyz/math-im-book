@@ -8,7 +8,7 @@ from typing import Callable
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response, status
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -176,6 +176,14 @@ def create_app(
 
     if frontend_dist.exists():
         app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+        favicon_path = frontend_dist / "favicon.png"
+        if favicon_path.exists():
+
+            @app.get("/favicon.png", include_in_schema=False)
+            @app.get("/favicon.ico", include_in_schema=False)
+            def favicon() -> FileResponse:
+                return FileResponse(favicon_path, media_type="image/png")
+
         provider_icons_dir = frontend_public / "provider-icons"
         if not provider_icons_dir.exists():
             provider_icons_dir = frontend_dist / "provider-icons"

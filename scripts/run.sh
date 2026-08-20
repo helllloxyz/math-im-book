@@ -9,6 +9,7 @@ FRONTEND_INDEX="$REPO_ROOT/frontend/dist/index.html"
 
 HOST="${1:-127.0.0.1}"
 PORT="${2:-8000}"
+OPEN_BROWSER="${OPEN_BROWSER:-1}"
 
 if [[ ! -x "$VENV_PYTHON" ]]; then
   echo "Python environment not found: $VENV_PATH"
@@ -23,9 +24,27 @@ if [[ ! -f "$FRONTEND_INDEX" ]]; then
 fi
 
 cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
-echo "Math IM Book is starting at http://$HOST:$PORT"
+APP_URL="http://$HOST:$PORT"
+if [[ "$HOST" == "0.0.0.0" ]]; then
+  APP_URL="http://localhost:$PORT"
+fi
+
+echo "Math IM Book is starting at $APP_URL"
 echo "Press Ctrl+C to stop."
+
+if [[ "$OPEN_BROWSER" == "1" ]]; then
+  (
+    sleep 2
+    if command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "$APP_URL" >/dev/null 2>&1 || true
+    elif command -v open >/dev/null 2>&1; then
+      open "$APP_URL" >/dev/null 2>&1 || true
+    fi
+  ) &
+fi
+
 exec "$VENV_PYTHON" -m uvicorn \
   math_im_book.api.app:create_app \
   --factory \

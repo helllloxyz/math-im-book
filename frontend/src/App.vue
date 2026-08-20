@@ -19,7 +19,9 @@
 
     <aside class="workspace-sidebar" :class="{ 'is-open': isSidebarOpen }">
       <div class="brand-lockup">
-        <div class="brand-mark" aria-hidden="true">∑</div>
+        <div class="brand-mark" aria-hidden="true">
+          <img class="brand-mark-image" src="/favicon.png?v=3" alt="" />
+        </div>
         <div>
           <p class="brand-name">Mathbook</p>
           <p class="brand-note">Think in context</p>
