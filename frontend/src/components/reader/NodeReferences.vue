@@ -69,7 +69,7 @@ watch(node, () => {
         v-for="item in conceptItems"
         :key="item.cardId"
         :data-reference-card="item.cardId"
-        class="rounded-lg border border-outline-variant/10 bg-surface-container-lowest px-3 py-2 text-left transition-colors hover:border-primary-container/30 hover:bg-surface-container-low"
+        class="rounded-lg border border-outline-variant/10 bg-surface-container-lowest px-3 py-2 text-left transition-colors hover:border-primary/30 hover:bg-surface-container-low"
         @click="item.onClick()"
       >
         <div class="flex items-start justify-between gap-3">

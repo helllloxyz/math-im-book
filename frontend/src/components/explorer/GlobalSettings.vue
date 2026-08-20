@@ -376,7 +376,7 @@ const saveDefaultOptions = async () => {
                 </span>
                 <span
                   class="rounded bg-surface-container px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest transition-colors"
-                  :class="isConfigured(provider.provider_id) ? 'bg-primary/10 text-primary' : 'text-on-surface-variant/40'"
+                  :class="isConfigured(provider.provider_id) ? 'bg-success-container text-success' : 'text-on-surface-variant/40'"
                 >
                   {{ isConfigured(provider.provider_id) ? 'set' : 'none' }}
                 </span>
@@ -402,7 +402,7 @@ const saveDefaultOptions = async () => {
                 </h5>
                 <span
                   class="rounded px-2 py-0.5 font-sans text-[9px] font-bold uppercase tracking-[0.16em]"
-                  :class="activeProviderConfig ? 'bg-primary/10 text-primary' : 'bg-surface-container-high text-on-surface-variant/50'"
+                  :class="activeProviderConfig ? 'bg-success-container text-success' : 'bg-surface-container-high text-on-surface-variant/50'"
                 >
                   {{ activeProviderConfig ? 'Configured' : 'Not Configured' }}
                 </span>
@@ -459,7 +459,7 @@ const saveDefaultOptions = async () => {
                       <button
                         @click="addModel"
                         :disabled="!modelToAdd.trim()"
-                        class="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-fixed px-4 py-2 font-sans text-[11px] font-bold uppercase tracking-widest text-primary transition-colors hover:bg-primary-container hover:text-on-primary disabled:opacity-50 disabled:hover:bg-primary-fixed disabled:hover:text-primary"
+                        class="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-fixed px-4 py-2 font-sans text-[11px] font-bold uppercase tracking-widest text-primary transition-colors hover:bg-primary-hover hover:text-on-primary disabled:opacity-50 disabled:hover:bg-primary-fixed disabled:hover:text-primary"
                       >
                         <span class="material-symbols-outlined text-[16px]">add</span>
                         Add
@@ -485,7 +485,7 @@ const saveDefaultOptions = async () => {
                 <button
                   @click="saveCredential"
                   :disabled="!canSaveProvider"
-                  class="w-full rounded-full bg-primary py-3 font-sans text-[11px] font-bold uppercase tracking-widest text-on-primary transition-colors hover:bg-primary-container disabled:cursor-not-allowed disabled:bg-surface-container disabled:text-on-surface-variant/40"
+                  class="w-full rounded-full bg-primary py-3 font-sans text-[11px] font-bold uppercase tracking-widest text-on-primary transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-surface-container disabled:text-on-surface-variant/40"
                 >
                   Save Provider Config
                 </button>
@@ -539,7 +539,7 @@ const saveDefaultOptions = async () => {
                 <button
                   @click="saveDefaultOptions"
                   :disabled="!canSaveDefaultOptions || loading"
-                  class="w-full rounded-full bg-primary py-3 font-sans text-[11px] font-bold uppercase tracking-widest text-on-primary transition-colors hover:bg-primary-container disabled:cursor-not-allowed disabled:bg-surface-container disabled:text-on-surface-variant/40"
+                  class="w-full rounded-full bg-primary py-3 font-sans text-[11px] font-bold uppercase tracking-widest text-on-primary transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-surface-container disabled:text-on-surface-variant/40"
                 >
                   Save Default Options
                 </button>

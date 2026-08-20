@@ -399,8 +399,8 @@ onMounted(() => {
   min-height: 100%;
   padding: 46px 34px 80px;
   background:
-    radial-gradient(circle at 82% 2%, rgb(216 232 223 / 0.38), transparent 28%),
-    rgb(255 253 247 / 0.64);
+    radial-gradient(circle at 82% 2%, color-mix(in srgb, var(--color-primary-fixed) 42%, transparent), transparent 28%),
+    rgb(var(--color-surface-lowest-rgb) / 0.64);
 }
 
 .agent-page-inner {
@@ -415,7 +415,7 @@ onMounted(() => {
   gap: 18px;
   align-items: start;
   padding: 4px 4px 28px;
-  border-bottom: 1px solid rgb(32 35 31 / 0.1);
+  border-bottom: 1px solid rgb(var(--color-on-surface-rgb) / 0.1);
 }
 
 .review-marker {
@@ -423,11 +423,11 @@ onMounted(() => {
   width: 48px;
   height: 48px;
   place-items: center;
-  border: 1px solid rgb(25 63 58 / 0.14);
+  border: 1px solid rgb(var(--color-primary-rgb) / 0.14);
   border-radius: 14px;
   color: var(--color-primary);
   background: var(--color-primary-fixed);
-  box-shadow: inset 0 -2px 0 rgb(25 63 58 / 0.08);
+  box-shadow: inset 0 -2px 0 rgb(var(--color-primary-rgb) / 0.08);
 }
 
 .review-marker .material-symbols-outlined {
@@ -436,7 +436,7 @@ onMounted(() => {
 
 .review-overview p {
   margin: 2px 0 7px;
-  color: #96715c;
+  color: var(--color-accent);
   font-family: var(--font-sans);
   font-size: 9px;
   font-weight: 600;
@@ -447,7 +447,7 @@ onMounted(() => {
 .review-overview h2 {
   max-width: 720px;
   margin: 0;
-  color: #21302c;
+  color: var(--color-on-surface);
   font-family: var(--font-serif);
   font-size: clamp(20px, 2.35vw, 25px);
   font-weight: 500;
@@ -473,16 +473,16 @@ onMounted(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #c86f3d;
+  background: var(--color-accent);
 }
 
 .knowledge-panel {
   overflow: hidden;
   margin-top: 24px;
-  border: 1px solid rgb(32 35 31 / 0.1);
+  border: 1px solid rgb(var(--color-on-surface-rgb) / 0.1);
   border-radius: 18px;
-  background: #fffdf7;
-  box-shadow: 0 10px 32px rgb(31 48 42 / 0.055), 0 1px 0 rgb(32 35 31 / 0.04);
+  background: var(--color-surface-container-lowest);
+  box-shadow: 0 10px 32px rgb(var(--color-shadow-rgb) / 0.055), 0 1px 0 rgb(var(--color-on-surface-rgb) / 0.04);
 }
 
 .knowledge-heading {
@@ -499,8 +499,8 @@ onMounted(() => {
   flex: 0 0 38px;
   place-items: center;
   border-radius: 11px;
-  color: #9a5734;
-  background: #fae7d8;
+  color: var(--color-accent);
+  background: var(--color-accent-container);
 }
 
 .knowledge-heading-icon .material-symbols-outlined {
@@ -535,7 +535,7 @@ onMounted(() => {
   height: 25px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid rgb(32 35 31 / 0.09);
+  border: 1px solid rgb(var(--color-on-surface-rgb) / 0.09);
   border-radius: 50%;
   color: var(--color-on-surface-variant);
   background: var(--color-surface-container-lowest);
@@ -545,7 +545,7 @@ onMounted(() => {
 }
 
 .knowledge-list {
-  border-top: 1px solid rgb(32 35 31 / 0.08);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.08);
 }
 
 .knowledge-item {
@@ -561,7 +561,7 @@ onMounted(() => {
 }
 
 .knowledge-item + .knowledge-item {
-  border-top: 1px solid rgb(32 35 31 / 0.07);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.07);
 }
 
 .knowledge-item.selectable {
@@ -569,11 +569,11 @@ onMounted(() => {
 }
 
 .knowledge-item.selectable:hover {
-  background: rgb(216 232 223 / 0.24);
+  background: color-mix(in srgb, var(--color-primary-fixed) 45%, transparent);
 }
 
 .knowledge-item.selected {
-  background: rgb(216 232 223 / 0.38);
+  background: color-mix(in srgb, var(--color-primary-fixed) 68%, transparent);
   box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
@@ -589,8 +589,8 @@ onMounted(() => {
   place-items: center;
   border: 1px solid var(--color-outline-variant);
   border-radius: 6px;
-  color: #fffdf7;
-  background: #fffdf7;
+  color: var(--color-on-primary);
+  background: var(--color-surface-container-lowest);
   transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
 }
 
@@ -614,7 +614,7 @@ onMounted(() => {
 }
 
 .knowledge-item input:focus-visible + .draft-check {
-  outline: 2px solid #c86f3d;
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
@@ -647,7 +647,7 @@ onMounted(() => {
 }
 
 .draft-type {
-  color: rgb(95 98 91 / 0.68);
+  color: color-mix(in srgb, var(--color-on-surface-variant) 78%, transparent);
   font-family: var(--font-sans);
   font-size: 8px;
   font-weight: 600;
@@ -677,35 +677,35 @@ onMounted(() => {
 }
 
 .tone-suggested {
-  color: #9a5734;
+  color: var(--color-accent);
 }
 
 .knowledge-status.tone-suggested {
-  background: #fae7d8;
+  background: var(--color-accent-container);
 }
 
 .tone-active {
-  color: #78631d;
+  color: var(--color-warning);
 }
 
 .knowledge-status.tone-active {
-  background: #f4ecc8;
+  background: var(--color-warning-container);
 }
 
 .tone-ready {
-  color: var(--color-primary);
+  color: var(--color-success);
 }
 
 .knowledge-status.tone-ready {
-  background: var(--color-primary-fixed);
+  background: var(--color-success-container);
 }
 
 .tone-failed {
-  color: #a23e35;
+  color: var(--color-danger);
 }
 
 .knowledge-status.tone-failed {
-  background: #f8dfdc;
+  background: var(--color-danger-container);
 }
 
 .tone-neutral {
@@ -723,7 +723,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 18px;
   padding: 10px 14px 10px 24px;
-  border-top: 1px solid rgb(32 35 31 / 0.08);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.08);
   background: var(--color-surface-container-low);
 }
 
@@ -749,9 +749,9 @@ onMounted(() => {
   padding: 0 13px;
   border: 0;
   border-radius: 10px;
-  color: #fffdf7;
+  color: var(--color-on-primary);
   background: var(--color-primary);
-  box-shadow: 0 4px 12px rgb(25 63 58 / 0.16);
+  box-shadow: 0 4px 12px rgb(var(--color-primary-rgb) / 0.2);
   font-family: var(--font-sans);
   font-size: 10px;
   font-weight: 600;
@@ -759,7 +759,8 @@ onMounted(() => {
 }
 
 .generate-drafts:not(:disabled):hover {
-  box-shadow: 0 6px 16px rgb(25 63 58 / 0.22);
+  background: var(--color-primary-hover);
+  box-shadow: 0 6px 16px rgb(var(--color-primary-rgb) / 0.26);
   transform: translateY(-1px);
 }
 
@@ -777,9 +778,9 @@ onMounted(() => {
 .diagnostics {
   overflow: hidden;
   margin-top: 12px;
-  border: 1px solid rgb(32 35 31 / 0.09);
+  border: 1px solid rgb(var(--color-on-surface-rgb) / 0.09);
   border-radius: 13px;
-  background: rgb(255 253 247 / 0.76);
+  background: rgb(var(--color-surface-lowest-rgb) / 0.76);
 }
 
 .other-knowledge summary,
@@ -842,8 +843,8 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
-  border-top: 1px solid rgb(32 35 31 / 0.08);
-  background: rgb(32 35 31 / 0.08);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.08);
+  background: rgb(var(--color-on-surface-rgb) / 0.08);
 }
 
 .other-knowledge-list article {
@@ -852,7 +853,7 @@ onMounted(() => {
   align-items: center;
   gap: 9px;
   padding: 13px 16px;
-  background: #fffdf7;
+  background: var(--color-surface-container-lowest);
 }
 
 .other-knowledge-list article > .material-symbols-outlined {
@@ -888,14 +889,14 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 1px;
-  border-top: 1px solid rgb(32 35 31 / 0.08);
-  background: rgb(32 35 31 / 0.08);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.08);
+  background: rgb(var(--color-on-surface-rgb) / 0.08);
 }
 
 .diagnostic-grid > section {
   min-height: 140px;
   padding: 18px;
-  background: #fffdf7;
+  background: var(--color-surface-container-lowest);
 }
 
 .diagnostic-grid h3 {
@@ -966,7 +967,7 @@ onMounted(() => {
 
 .diagnostic-list article {
   padding: 8px 0;
-  border-top: 1px solid rgb(32 35 31 / 0.07);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.07);
 }
 
 .diagnostic-list article > div {

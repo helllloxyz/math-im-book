@@ -91,7 +91,7 @@ const markdownDetail = computed(() => {
             {{ node.title }}
           </h1>
 
-          <div v-if="node.detail && node.summary" class="border-l-2 border-[#c86f3d]/50 pl-5 font-serif text-lg leading-relaxed text-on-surface-variant italic">
+          <div v-if="node.detail && node.summary" class="border-l-2 border-accent/50 pl-5 font-serif text-lg leading-relaxed text-on-surface-variant italic">
             {{ node.summary }}
           </div>
         </div>

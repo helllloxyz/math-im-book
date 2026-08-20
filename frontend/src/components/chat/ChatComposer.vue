@@ -124,16 +124,16 @@ const handleKeydown = (event: KeyboardEvent) => {
 
 .composer-shell {
   overflow: hidden;
-  border: 1px solid rgb(32 35 31 / 0.14);
+  border: 1px solid rgb(var(--color-on-surface-rgb) / 0.14);
   border-radius: 16px;
-  background: #fffdf7;
-  box-shadow: 0 14px 40px rgb(32 35 31 / 0.09), 0 1px 1px rgb(32 35 31 / 0.08);
+  background: var(--color-surface-container-lowest);
+  box-shadow: 0 14px 40px rgb(var(--color-shadow-rgb) / 0.09), 0 1px 1px rgb(var(--color-on-surface-rgb) / 0.08);
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .composer-shell:focus-within {
-  border-color: rgb(25 63 58 / 0.42);
-  box-shadow: 0 18px 48px rgb(32 35 31 / 0.12), 0 0 0 3px rgb(216 232 223 / 0.5);
+  border-color: rgb(var(--color-primary-rgb) / 0.46);
+  box-shadow: 0 18px 48px rgb(var(--color-shadow-rgb) / 0.12), 0 0 0 3px rgb(var(--color-primary-rgb) / 0.1);
 }
 
 .composer-input-row {
@@ -157,7 +157,7 @@ textarea {
 }
 
 textarea::placeholder {
-  color: rgb(95 98 91 / 0.55);
+  color: color-mix(in srgb, var(--color-on-surface-variant) 55%, transparent);
 }
 
 .send-button {
@@ -168,14 +168,14 @@ textarea::placeholder {
   place-items: center;
   border: 0;
   border-radius: 11px;
-  color: #fffdf7;
+  color: var(--color-on-primary);
   background: var(--color-primary);
-  box-shadow: 0 5px 12px rgb(25 63 58 / 0.18);
+  box-shadow: 0 5px 12px rgb(var(--color-primary-rgb) / 0.22);
   transition: background-color 150ms ease, transform 150ms ease, opacity 150ms ease;
 }
 
 .send-button:hover:not(:disabled) {
-  background: #c86f3d;
+  background: var(--color-primary-hover);
   transform: translateY(-1px);
 }
 
@@ -196,7 +196,7 @@ textarea::placeholder {
   justify-content: space-between;
   gap: 12px;
   padding: 4px 13px 7px 14px;
-  border-top: 1px solid rgb(32 35 31 / 0.065);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.065);
 }
 
 .composer-options {
@@ -238,7 +238,7 @@ select {
 
 .composer-hint {
   flex: 0 0 auto;
-  color: rgb(95 98 91 / 0.52);
+  color: color-mix(in srgb, var(--color-on-surface-variant) 62%, transparent);
   font-family: var(--font-sans);
   font-size: 9px;
 }
@@ -249,10 +249,10 @@ select {
   gap: 8px;
   margin: 8px 2px 0;
   padding: 8px 12px;
-  border: 1px solid rgb(171 53 42 / 0.15);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 18%, transparent);
   border-radius: 9px;
-  color: #8f3027;
-  background: #fff2ef;
+  color: var(--color-danger);
+  background: var(--color-danger-container);
   font-family: var(--font-sans);
   font-size: 11px;
 }

@@ -18,7 +18,7 @@
   padding: 0.2em 0.4em;
   border-radius: 4px;
   font-size: 0.9em;
-  color: #eb5757;
+  color: var(--color-accent);
 }
 .theme-geek .math-block, .theme-geek .katex-display {
   background: var(--color-surface-container-lowest);

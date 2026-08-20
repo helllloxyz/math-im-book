@@ -16,9 +16,9 @@
 }
 .theme-reading code {
   font-family: "Menlo", "STHeiti", monospace;
-  background-color: #fdf5e6;
+  background-color: var(--color-accent-container);
   padding: 0.2em 0.4em;
-  color: #8b4513;
+  color: var(--color-accent);
   border-radius: 4px;
   font-size: 0.9em;
 }

@@ -118,7 +118,7 @@ const open = () => {
           <button
             @click="save"
             :disabled="!selectedConfiguredProfile"
-            class="flex-1 rounded-full bg-primary px-4 py-3 font-sans text-[11px] font-bold uppercase tracking-widest text-on-primary transition-colors hover:bg-primary-container disabled:cursor-not-allowed disabled:bg-surface-container disabled:text-on-surface-variant/40"
+            class="flex-1 rounded-full bg-primary px-4 py-3 font-sans text-[11px] font-bold uppercase tracking-widest text-on-primary transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-surface-container disabled:text-on-surface-variant/40"
           >
             Save Model
           </button>

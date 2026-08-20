@@ -164,21 +164,21 @@ const copyContent = async () => {
 
 .assistant-message .message-card {
   padding: 24px 27px 10px;
-  border: 1px solid rgb(32 35 31 / 0.075);
+  border: 1px solid rgb(var(--color-on-surface-rgb) / 0.075);
   border-radius: 16px;
-  background: rgb(255 253 247 / 0.82);
-  box-shadow: 0 1px 0 rgb(32 35 31 / 0.04);
+  background: rgb(var(--color-surface-lowest-rgb) / 0.82);
+  box-shadow: 0 1px 0 rgb(var(--color-on-surface-rgb) / 0.04);
 }
 
 .user-message .message-card {
   width: auto;
   max-width: 78%;
   padding: 12px 16px;
-  border: 1px solid rgb(25 63 58 / 0.12);
+  border: 1px solid rgb(var(--color-primary-rgb) / 0.14);
   border-radius: 14px 14px 4px 14px;
   color: var(--color-on-surface);
   background: var(--color-primary-fixed);
-  box-shadow: 0 1px 0 rgb(25 63 58 / 0.05);
+  box-shadow: 0 1px 0 rgb(var(--color-primary-rgb) / 0.06);
   font-family: var(--font-sans);
   font-size: 13px;
 }
@@ -219,7 +219,7 @@ const copyContent = async () => {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #c86f3d;
+  background: var(--color-accent);
   animation: thinking 1.2s ease-in-out infinite;
 }
 
@@ -238,12 +238,12 @@ const copyContent = async () => {
   gap: 6px;
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px solid rgb(32 35 31 / 0.075);
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.075);
 }
 
 .knowledge-label {
   margin-right: 3px;
-  color: rgb(95 98 91 / 0.62);
+  color: color-mix(in srgb, var(--color-on-surface-variant) 72%, transparent);
   font-family: var(--font-sans);
   font-size: 9px;
   font-weight: 600;
@@ -266,7 +266,7 @@ const copyContent = async () => {
 
 .knowledge-links button:disabled {
   cursor: default;
-  color: rgb(95 98 91 / 0.62);
+  color: color-mix(in srgb, var(--color-on-surface-variant) 72%, transparent);
   background: var(--color-surface-container-low);
 }
 
@@ -339,7 +339,7 @@ const copyContent = async () => {
   padding: 5px 7px;
   border: 0;
   border-radius: 5px;
-  color: rgb(95 98 91 / 0.68);
+  color: color-mix(in srgb, var(--color-on-surface-variant) 78%, transparent);
   background: transparent;
   font-family: var(--font-sans);
   font-size: 9px;
