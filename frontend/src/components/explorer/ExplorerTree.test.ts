@@ -315,12 +315,14 @@ describe('ExplorerTree', () => {
       },
     });
 
-    expect(wrapper.find('[data-explorer-item-icon="linear-map"]').text()).toBe('science');
+    const categoryIcon = wrapper.get('[data-explorer-item-icon="linear-map"]');
+    expect(categoryIcon.element.tagName).toBe('IMG');
+    expect(categoryIcon.attributes('data-math-category')).toBe('general');
 
     await wrapper.get('[data-item-icon-trigger="linear-map"]').trigger('click');
-    await wrapper.get('[data-item-icon-option="orbit"]').trigger('click');
+    await wrapper.get('[data-item-icon-option="group-theory"]').trigger('click');
 
-    expect(wrapper.emitted('update-item-icon')?.[0]).toEqual(['knowledge_node', 'linear-map', 'orbit']);
+    expect(wrapper.emitted('update-item-icon')?.[0]).toEqual(['knowledge_node', 'linear-map', 'group-theory']);
   });
 
   it('emits the primary header action', async () => {

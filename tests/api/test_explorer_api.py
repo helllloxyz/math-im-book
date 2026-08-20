@@ -141,6 +141,14 @@ def test_icon_update_for_missing_knowledge_note_returns_404(tmp_path: Path) -> N
 
 def test_knowledge_explorer_returns_foldered_node(tmp_path) -> None:
     repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    session_store = FileSessionStore(tmp_path / "sessions")
+    session_store.save_record(
+        SessionRecord(
+            session_id="chat:1",
+            title="Linear Algebra Foundations",
+            icon="linear-algebra",
+        )
+    )
     repository.save_node(
         KnowledgeNode(
             id="linear-map",
@@ -154,7 +162,13 @@ def test_knowledge_explorer_returns_foldered_node(tmp_path) -> None:
         )
     )
     explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
-    client = TestClient(create_app(repository=repository, explorer_store=explorer_store))
+    client = TestClient(
+        create_app(
+            repository=repository,
+            session_store=session_store,
+            explorer_store=explorer_store,
+        )
+    )
     folder_id = client.post(
         "/api/explorer/folders",
         json={"scope": "knowledge", "name": "Linear Algebra", "parent_folder_id": None},
@@ -170,7 +184,7 @@ def test_knowledge_explorer_returns_foldered_node(tmp_path) -> None:
     folder = response.json()["tree"][0]
     assert folder["folder"]["name"] == "Linear Algebra"
     assert folder["children"][0]["item"]["id"] == "linear-map"
-    assert folder["children"][0]["item"]["icon"] is not None
+    assert folder["children"][0]["item"]["icon"] == "linear-algebra"
 
 
 def test_patch_knowledge_explorer_icon_returns_icon_in_tree(tmp_path) -> None:
@@ -192,13 +206,13 @@ def test_patch_knowledge_explorer_icon_returns_icon_in_tree(tmp_path) -> None:
 
     response = client.patch(
         "/api/explorer/items/knowledge_node/linear-map/icon",
-        json={"icon": "wave"},
+        json={"icon": "topology"},
     )
     tree_response = client.get("/api/explorer/knowledge")
 
     assert response.status_code == 200
-    assert response.json()["icon"]["icon"] == "wave"
-    assert tree_response.json()["tree"][0]["item"]["icon"] == "wave"
+    assert response.json()["icon"]["icon"] == "topology"
+    assert tree_response.json()["tree"][0]["item"]["icon"] == "topology"
 
 
 def test_organize_knowledge_groups_unlocked_root_nodes_and_preserves_user_placement(

@@ -105,10 +105,14 @@ describe('BookOutline', () => {
       },
     });
 
+    const inheritedIcon = wrapper.get('[data-explorer-item-icon="vector-space"]');
+    expect(inheritedIcon.element.tagName).toBe('IMG');
+    expect(inheritedIcon.attributes('data-math-category')).toBe('discrete-combinatorics');
     await wrapper.get('[data-item-icon-trigger="vector-space"]').trigger('click');
-    await wrapper.get('[data-item-icon-option="wave"]').trigger('click');
+    expect(wrapper.findAll('[data-item-icon-option]').length).toBe(12);
+    await wrapper.get('[data-item-icon-option="linear-algebra"]').trigger('click');
 
-    expect(updateIconSpy).toHaveBeenCalledWith('knowledge_node', 'vector-space', 'wave');
+    expect(updateIconSpy).toHaveBeenCalledWith('knowledge_node', 'vector-space', 'linear-algebra');
   });
 
   it('renames a knowledge note from the item menu', async () => {

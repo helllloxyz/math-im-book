@@ -124,15 +124,6 @@ MATH_SESSION_CATEGORIES = {
     "general": "Mixed, elementary, historical, or otherwise cross-category mathematics",
 }
 DEFAULT_SESSION_CATEGORY = "general"
-DEFAULT_KNOWLEDGE_ICONS = (
-    "function",
-    "sigma",
-    "matrix",
-    "triangle",
-    "atom",
-    "wave",
-    "orbit",
-)
 DEFAULT_STRATEGY_AGENT_ID = "top-down"
 
 
@@ -1133,13 +1124,25 @@ def create_app(
         )
 
     def _knowledge_explorer_items() -> list[dict[str, object]]:
+        source_icons: dict[str, str] = {}
+
+        def inherited_icon(source_session_id: str) -> str:
+            if source_session_id not in source_icons:
+                source_record = sessions.load_record(source_session_id)
+                source_icons[source_session_id] = (
+                    source_record.icon
+                    if source_record is not None and source_record.icon
+                    else DEFAULT_SESSION_CATEGORY
+                )
+            return source_icons[source_session_id]
+
         return [
             {
                 "item_type": "knowledge_node",
                 "item_id": node.id,
                 "id": node.id,
                 "title": node.title,
-                "icon": _default_knowledge_icon(node.id),
+                "icon": inherited_icon(node.source),
                 "type": node.type,
                 "summary": node.summary,
                 "parent_id": node.parent_id,
@@ -1728,11 +1731,6 @@ def _agent_state_for_record(
         ),
         recent_decisions=list(reversed(recent[-10:])),
     )
-
-
-def _default_knowledge_icon(node_id: str) -> str:
-    checksum = sum(ord(char) for char in node_id)
-    return DEFAULT_KNOWLEDGE_ICONS[checksum % len(DEFAULT_KNOWLEDGE_ICONS)]
 
 
 def _slugify(text: str) -> str:
