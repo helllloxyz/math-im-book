@@ -53,11 +53,9 @@ Linux 上的 Python 命令通常是 `python3`；Windows 推荐使用官方安装
 ### 3.1 使用 Git
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/helllloxyz/math-im-book.git
 cd math-im-book
 ```
-
-把 `<repository-url>` 替换为项目实际的 Git 仓库地址。
 
 ### 3.2 使用源码压缩包
 

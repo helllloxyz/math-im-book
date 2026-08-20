@@ -27,7 +27,7 @@ Math IM Book 是一个面向个人学习的交互式数学知识工作台。它�
 ### Linux / macOS
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/helllloxyz/math-im-book.git
 cd math-im-book
 chmod +x scripts/setup.sh scripts/run.sh
 ./scripts/setup.sh
@@ -39,7 +39,7 @@ chmod +x scripts/setup.sh scripts/run.sh
 在 PowerShell 或命令提示符中运行：
 
 ```powershell
-git clone <repository-url>
+git clone https://github.com/helllloxyz/math-im-book.git
 cd math-im-book
 .\scripts\setup.bat
 .\scripts\run.bat
@@ -89,18 +89,7 @@ Windows 使用相同参数：
 - `data/explorer/index.json`：文件夹、位置和分类图标
 - `data/config/`：回答风格、教学策略和默认模型等版本化配置
 
-`data/credentials/`、`data/chats/` 和 `data/knowledge/` 已被 Git 忽略。不要把包含个人数据或 API Key 的文件提交到公开仓库。升级或迁移前建议在应用停止后备份整个 `data/` 目录。
-
-## 开源发布提示
-
-公开仓库还应在发布前完成以下一次性事项：
-
-- 选择并加入明确的 `LICENSE`；许可证属于项目所有者的法律选择，本仓库暂不替你预设
-- 把 README 中的 `<repository-url>` 替换为实际仓库地址
-- 检查 Git 已跟踪文件中是否含有个人对话、测试密钥、域名或机器专用配置
-- 当前 `data/explorer/index.json` 含本机文件夹和会话位置；发布前应备份后清空，并决定是否改为不跟踪的运行数据
-- 确认根目录的 `Session-chat-245-chat-245.md` 和 `user_sepc_record.md` 是否确实要作为公开示例保留
-- 在干净的 Windows 和 Linux 环境各执行一次安装流程
+`data/credentials/`、`data/chats/`、`data/knowledge/` 和 `data/explorer/` 已被 Git 忽略。不要把包含个人数据或 API Key 的文件提交到公开仓库。升级或迁移前建议在应用停止后备份整个 `data/` 目录。
 
 ## 开发与测试
 

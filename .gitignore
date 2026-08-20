@@ -8,9 +8,19 @@ key.sh
 data/chats/
 data/knowledge/
 data/credentials/
-downloads/chatbox-main/
+data/explorer/
 *.patch
 self-evoluation-agent-main/
 mnemovault-main
 .DS_Store
 tree_view.html
+
+# Local development artifacts
+/AGENTS.md
+/Session-chat-*.md
+/user_sepc_record.md
+/downloads/
+/spec/
+/stitch/
+/docs/2026-04-03-answer-prompt-organization-notes.md
+/docs/superpowers/
