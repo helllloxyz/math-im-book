@@ -5,6 +5,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from threading import Lock, Thread
+from time import perf_counter
 from typing import Callable
 from uuid import uuid4
 
@@ -20,8 +21,12 @@ from math_im_book.services.concurrency import (
     ThreadPoolOrderedConcurrentRunner,
 )
 from math_im_book.services.providers import ProviderGateway, ProviderRequest
+from math_im_book.services.runtime_logging import get_runtime_logger, safe_log_value
 from math_im_book.storage.explorer import ExplorerStore
 from math_im_book.storage.markdown import MarkdownKnowledgeRepository
+
+
+logger = get_runtime_logger("knowledge_jobs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +118,13 @@ class InMemoryKnowledgeJobRepository:
         )
         with self._lock:
             self._jobs[job.job_id] = job
+        logger.info(
+            "Knowledge job queued: job=%s session=%s drafts=%d selected_nodes=%d",
+            job.job_id,
+            safe_log_value(job.session_id),
+            len(job.draft_requests) or 1,
+            len(job.selected_node_ids),
+        )
         if self.auto_start:
             Thread(target=self._run_job, args=(job.job_id,), daemon=True).start()
         return self.get_job(job.job_id) or job
@@ -155,11 +167,18 @@ class InMemoryKnowledgeJobRepository:
         return job
 
     def _run_job(self, job_id: str) -> None:
+        started_at = perf_counter()
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 return
             job.status = "running"
+            session_id = job.session_id
+        logger.info(
+            "Knowledge job started: job=%s session=%s",
+            job_id,
+            safe_log_value(session_id),
+        )
         try:
             self._compile_job(job_id)
         except Exception as exc:  # pragma: no cover - defensive guard
@@ -177,6 +196,23 @@ class InMemoryKnowledgeJobRepository:
                         )
                         for anchor in job.anchors
                     ]
+        snapshot = self.get_job(job_id)
+        if snapshot is not None and snapshot.status == "completed":
+            logger.info(
+                "Knowledge job completed: job=%s session=%s duration_ms=%d nodes=%d",
+                job_id,
+                safe_log_value(snapshot.session_id),
+                round((perf_counter() - started_at) * 1000),
+                sum(anchor.node_id is not None for anchor in snapshot.anchors),
+            )
+        elif snapshot is not None:
+            logger.warning(
+                "Knowledge job failed: job=%s session=%s duration_ms=%d detail=%s",
+                job_id,
+                safe_log_value(snapshot.session_id),
+                round((perf_counter() - started_at) * 1000),
+                safe_log_value(snapshot.error_message),
+            )
         self._notify_terminal_listeners(job_id)
 
     def _notify_terminal_listeners(self, job_id: str) -> None:
@@ -191,6 +227,13 @@ class InMemoryKnowledgeJobRepository:
                 listener(snapshot)
             except Exception:
                 # A failed observer must not change the result of a completed compile.
+                logger.exception(
+                    "Knowledge job observer failed: job=%s listener=%s",
+                    job_id,
+                    safe_log_value(
+                        getattr(listener, "__name__", type(listener).__name__)
+                    ),
+                )
                 continue
 
     def _compile_job(self, job_id: str) -> None:
@@ -416,6 +459,7 @@ class InMemoryKnowledgeJobRepository:
                     )
                 ),
                 session_id=job.session_id,
+                purpose="knowledge_compile",
             ),
         )
         return self._parse_provider_compiled_content(provider_output.output_text)

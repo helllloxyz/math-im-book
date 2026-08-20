@@ -160,6 +160,7 @@ class QuestionPlanner:
                 ),
                 session_id=session_id,
                 session_id_suffix="planner",
+                purpose="planner",
             ),
         )
         try:

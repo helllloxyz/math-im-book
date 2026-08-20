@@ -89,6 +89,7 @@ def run_provider_probe(
         request = ProviderRequest(
             system_instruction=system_instruction,
             user_message=user_message,
+            purpose="probe",
         )
         if profile.provider_type == "gemini":
             provider_result = GeminiAdapter(

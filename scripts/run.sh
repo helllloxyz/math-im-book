@@ -50,5 +50,5 @@ exec "$VENV_PYTHON" -m uvicorn \
   --factory \
   --host "$HOST" \
   --port "$PORT" \
-  --log-level warning \
+  --log-level info \
   --no-access-log

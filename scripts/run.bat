@@ -27,4 +27,4 @@ cd /d "%REPO_ROOT%"
 
 echo Math IM Book is starting at http://%APP_HOST%:%APP_PORT%
 echo Press Ctrl+C to stop.
-"%VENV_PYTHON%" -m uvicorn math_im_book.api.app:create_app --factory --host "%APP_HOST%" --port "%APP_PORT%" --log-level warning --no-access-log
+"%VENV_PYTHON%" -m uvicorn math_im_book.api.app:create_app --factory --host "%APP_HOST%" --port "%APP_PORT%" --log-level info --no-access-log

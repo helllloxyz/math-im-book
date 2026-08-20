@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from threading import Barrier
 
@@ -10,6 +11,58 @@ from math_im_book.domain.models import (
 from math_im_book.services.knowledge_jobs import InMemoryKnowledgeJobRepository
 from math_im_book.storage.explorer import ExplorerStore
 from math_im_book.storage.markdown import MarkdownKnowledgeRepository
+
+
+def test_knowledge_job_logs_lifecycle_without_content(tmp_path: Path, caplog) -> None:
+    class Gateway:
+        def generate(
+            self,
+            profile: ProviderProfile,
+            request: object,
+        ) -> ProviderResult:
+            return ProviderResult(
+                output_text='{"summary":"A summary.","detail":"A detail."}',
+                provider_name="test",
+            )
+
+    jobs = InMemoryKnowledgeJobRepository(
+        MarkdownKnowledgeRepository(tmp_path),
+        provider_gateway=Gateway(),
+        auto_start=False,
+    )
+    with caplog.at_level(
+        logging.INFO,
+        logger="uvicorn.error.math_im_book.knowledge_jobs",
+    ):
+        job = jobs.submit_compile_job(
+            session_id="chat-1",
+            question="private question content",
+            anchors=[],
+            selected_node_ids=[],
+            draft_requests=[
+                PendingDraftRequest(
+                    title="Private draft title",
+                    draft_type="summary",
+                    reason="Private draft reason",
+                )
+            ],
+            provider_profile=ProviderProfile(
+                provider_type="openai_compatible",
+                model="test-model",
+                credential_id="test",
+            ),
+        )
+        jobs.run_job(job.job_id)
+
+    log_output = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Knowledge job queued" in log_output
+    assert "Knowledge job started" in log_output
+    assert "Knowledge job completed" in log_output
+    assert f"job={job.job_id}" in log_output
+    assert "session=chat-1" in log_output
+    assert "private question content" not in log_output
+    assert "Private draft title" not in log_output
+    assert "Private draft reason" not in log_output
 
 
 def test_compile_job_without_provider_fails_without_writing_fallback_node(

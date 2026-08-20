@@ -3,10 +3,15 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Callable, Iterator
 
 from math_im_book.domain.models import ProviderProfile, ProviderResult
+from math_im_book.services.runtime_logging import get_runtime_logger, safe_log_value
 from math_im_book.storage.credentials import CredentialRecord, FileCredentialRegistry
+
+
+logger = get_runtime_logger("providers")
 
 
 @dataclass(slots=True)
@@ -15,6 +20,7 @@ class ProviderRequest:
     user_message: str
     session_id: str | None = None
     session_id_suffix: str | None = None
+    purpose: str = "answer"
 
 
 class ProviderError(Exception):
@@ -254,28 +260,121 @@ class ProviderGateway:
         profile: ProviderProfile,
         request: ProviderRequest,
     ) -> ProviderResult:
-        credential = self.credential_registry.get(profile.credential_id)
-        if profile.provider_type == "gemini":
-            return self.gemini_adapter.generate(profile, credential, request)
-        if profile.provider_type == "openai_compatible":
-            return self.openai_adapter.generate(profile, credential, request)
-        raise UnsupportedProviderError(
-            f"Unsupported provider_type: {profile.provider_type}"
+        started_at = perf_counter()
+        self._log_started(profile, request, stream=False)
+        try:
+            credential = self.credential_registry.get(profile.credential_id)
+            if profile.provider_type == "gemini":
+                result = self.gemini_adapter.generate(profile, credential, request)
+            elif profile.provider_type == "openai_compatible":
+                result = self.openai_adapter.generate(profile, credential, request)
+            else:
+                raise UnsupportedProviderError(
+                    f"Unsupported provider_type: {profile.provider_type}"
+                )
+        except Exception as exc:
+            self._log_failed(profile, request, started_at, exc, stream=False)
+            raise
+        logger.info(
+            "Model call completed: purpose=%s provider=%s model=%s session=%s "
+            "duration_ms=%d output_chars=%d",
+            safe_log_value(request.purpose),
+            safe_log_value(profile.provider_type),
+            safe_log_value(profile.model),
+            safe_log_value(request.session_id),
+            self._duration_ms(started_at),
+            len(result.output_text),
         )
+        return result
 
     def generate_stream(
         self,
         profile: ProviderProfile,
         request: ProviderRequest,
     ) -> Iterator[str]:
-        credential = self.credential_registry.get(profile.credential_id)
-        if profile.provider_type == "gemini":
-            return self.gemini_adapter.generate_stream(profile, credential, request)
-        if profile.provider_type == "openai_compatible":
-            return self.openai_adapter.generate_stream(profile, credential, request)
-        raise UnsupportedProviderError(
-            f"Unsupported provider_type: {profile.provider_type}"
+        started_at = perf_counter()
+        self._log_started(profile, request, stream=True)
+        try:
+            credential = self.credential_registry.get(profile.credential_id)
+            if profile.provider_type == "gemini":
+                stream = self.gemini_adapter.generate_stream(profile, credential, request)
+            elif profile.provider_type == "openai_compatible":
+                stream = self.openai_adapter.generate_stream(profile, credential, request)
+            else:
+                raise UnsupportedProviderError(
+                    f"Unsupported provider_type: {profile.provider_type}"
+                )
+        except Exception as exc:
+            self._log_failed(profile, request, started_at, exc, stream=True)
+            raise
+
+        def logged_stream() -> Iterator[str]:
+            chunk_count = 0
+            output_chars = 0
+            try:
+                for chunk in stream:
+                    chunk_count += 1
+                    output_chars += len(chunk)
+                    yield chunk
+            except Exception as exc:
+                self._log_failed(profile, request, started_at, exc, stream=True)
+                raise
+            logger.info(
+                "Model stream completed: purpose=%s provider=%s model=%s session=%s "
+                "duration_ms=%d chunks=%d output_chars=%d",
+                safe_log_value(request.purpose),
+                safe_log_value(profile.provider_type),
+                safe_log_value(profile.model),
+                safe_log_value(request.session_id),
+                self._duration_ms(started_at),
+                chunk_count,
+                output_chars,
+            )
+
+        return logged_stream()
+
+    @staticmethod
+    def _log_started(
+        profile: ProviderProfile,
+        request: ProviderRequest,
+        *,
+        stream: bool,
+    ) -> None:
+        logger.info(
+            "Model %s started: purpose=%s provider=%s model=%s session=%s",
+            "stream" if stream else "call",
+            safe_log_value(request.purpose),
+            safe_log_value(profile.provider_type),
+            safe_log_value(profile.model),
+            safe_log_value(request.session_id),
         )
+
+    @classmethod
+    def _log_failed(
+        cls,
+        profile: ProviderProfile,
+        request: ProviderRequest,
+        started_at: float,
+        exc: Exception,
+        *,
+        stream: bool,
+    ) -> None:
+        logger.warning(
+            "Model %s failed: purpose=%s provider=%s model=%s session=%s "
+            "duration_ms=%d error=%s detail=%s",
+            "stream" if stream else "call",
+            safe_log_value(request.purpose),
+            safe_log_value(profile.provider_type),
+            safe_log_value(profile.model),
+            safe_log_value(request.session_id),
+            cls._duration_ms(started_at),
+            type(exc).__name__,
+            safe_log_value(exc),
+        )
+
+    @staticmethod
+    def _duration_ms(started_at: float) -> int:
+        return round((perf_counter() - started_at) * 1000)
 
 
 class FakeProviderGateway:

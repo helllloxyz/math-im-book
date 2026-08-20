@@ -1,9 +1,10 @@
 import json
 import re
 from dataclasses import replace
+from pathlib import Path
 from queue import Queue
 from threading import Thread
-from pathlib import Path
+from time import perf_counter
 from typing import Callable
 from uuid import uuid4
 
@@ -88,6 +89,7 @@ from math_im_book.services.providers import (
     ProviderUpstreamError,
     UnsupportedProviderError,
 )
+from math_im_book.services.runtime_logging import get_runtime_logger, safe_log_value
 from math_im_book.services.symbols import SymbolRegistry
 from math_im_book.storage.answer_styles import FileAnswerStyleRepository
 from math_im_book.storage.credentials import FileCredentialRegistry
@@ -125,6 +127,25 @@ MATH_SESSION_CATEGORIES = {
 }
 DEFAULT_SESSION_CATEGORY = "general"
 DEFAULT_STRATEGY_AGENT_ID = "top-down"
+
+logger = get_runtime_logger("api")
+
+
+def _log_question_failure(
+    session_id: str | None,
+    started_at: float,
+    reason: str,
+    exc: Exception,
+) -> None:
+    logger.warning(
+        "Question generation failed: session=%s reason=%s duration_ms=%d "
+        "error=%s detail=%s",
+        safe_log_value(session_id),
+        reason,
+        round((perf_counter() - started_at) * 1000),
+        type(exc).__name__,
+        safe_log_value(exc),
+    )
 
 
 class CredentialWriteSchema(BaseModel):
@@ -353,8 +374,16 @@ def create_app(
         strategy_agent_id: str | None,
         stream_callback: Callable[[str], None] | None = None,
     ):
+        started_at = perf_counter()
+        logger.info(
+            "Question generation started: session=%s mode=%s provider=%s model=%s",
+            safe_log_value(session_id),
+            "stream" if stream_callback is not None else "standard",
+            safe_log_value(provider_profile.provider_type if provider_profile else "local"),
+            safe_log_value(provider_profile.model if provider_profile else None),
+        )
         try:
-            return orchestrator.answer(
+            result = orchestrator.answer(
                 question,
                 session_id=session_id,
                 provider_profile=provider_profile,
@@ -364,19 +393,40 @@ def create_app(
                 stream_callback=stream_callback,
             )
         except KeyError as exc:
+            _log_question_failure(session_id, started_at, "configuration", exc)
             raise HTTPException(status_code=400, detail="Unknown answer style") from exc
         except ProviderAuthenticationError as exc:
+            _log_question_failure(session_id, started_at, "provider_authentication", exc)
             raise HTTPException(
                 status_code=502, detail="Provider authentication failed"
             ) from exc
         except ProviderRateLimitError as exc:
+            _log_question_failure(session_id, started_at, "provider_rate_limit", exc)
             raise HTTPException(
                 status_code=429, detail="Provider rate limit exceeded"
             ) from exc
         except (ProviderUpstreamError, UnsupportedProviderError) as exc:
+            _log_question_failure(session_id, started_at, "provider_upstream", exc)
             raise HTTPException(status_code=502, detail="Provider request failed") from exc
         except PlannerError as exc:
+            _log_question_failure(session_id, started_at, "planner", exc)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            _log_question_failure(session_id, started_at, "unexpected", exc)
+            raise
+        plan = result.orchestration_plan or result.action.orchestration_plan
+        logger.info(
+            "Question generation completed: session=%s route=%s action=%s "
+            "selected_nodes=%d drafts=%d knowledge_job=%s duration_ms=%d",
+            safe_log_value(session_id),
+            safe_log_value(plan.route if plan is not None else None),
+            safe_log_value(result.action.action_type),
+            len(result.action.selected_node_ids),
+            len(result.drafts),
+            safe_log_value(result.answer.knowledge_job_id),
+            round((perf_counter() - started_at) * 1000),
+        )
+        return result
 
     def _ask_response(
         payload: AskRequestSchema,
@@ -1790,6 +1840,7 @@ def _generate_session_identity(
                 user_message="\n".join(prompt_messages),
                 session_id=session_id,
                 session_id_suffix="utility",
+                purpose="session_identity",
             ),
         )
     except (KeyError, ProviderError, AttributeError, TypeError, ValueError):

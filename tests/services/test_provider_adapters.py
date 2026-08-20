@@ -1,10 +1,73 @@
-from math_im_book.domain.models import ProviderProfile
+import json
+import logging
+
+from math_im_book.domain.models import ProviderProfile, ProviderResult
 from math_im_book.services.providers import (
     GeminiAdapter,
     OpenAICompatibleAdapter,
+    ProviderGateway,
     ProviderRequest,
 )
-from math_im_book.storage.credentials import CredentialRecord
+from math_im_book.storage.credentials import CredentialRecord, FileCredentialRegistry
+
+
+def test_provider_gateway_logs_safe_call_lifecycle(tmp_path, caplog) -> None:
+    credentials_path = tmp_path / "credentials.json"
+    credentials_path.write_text(
+        json.dumps(
+            {
+                "credentials": [
+                    {"credential_id": "test", "api_key": "super-secret-key"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class Adapter:
+        def generate(
+            self,
+            profile: ProviderProfile,
+            credential: CredentialRecord,
+            request: ProviderRequest,
+        ) -> ProviderResult:
+            assert credential.api_key == "super-secret-key"
+            return ProviderResult(output_text="safe result", provider_name="test")
+
+    gateway = ProviderGateway(
+        FileCredentialRegistry(credentials_path),
+        gemini_adapter=Adapter(),
+    )
+    profile = ProviderProfile(
+        provider_type="gemini",
+        model="test-model",
+        credential_id="test",
+    )
+
+    with caplog.at_level(
+        logging.INFO,
+        logger="uvicorn.error.math_im_book.providers",
+    ):
+        gateway.generate(
+            profile,
+            ProviderRequest(
+                system_instruction="private system instructions",
+                user_message="private user question",
+                session_id="chat-1",
+                purpose="planner",
+            ),
+        )
+
+    log_output = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Model call started" in log_output
+    assert "Model call completed" in log_output
+    assert "purpose=planner" in log_output
+    assert "provider=gemini" in log_output
+    assert "model=test-model" in log_output
+    assert "session=chat-1" in log_output
+    assert "super-secret-key" not in log_output
+    assert "private system instructions" not in log_output
+    assert "private user question" not in log_output
 
 
 def test_openai_compatible_adapter_sends_chat_completions_shape() -> None:
