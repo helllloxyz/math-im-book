@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderMarkdown } from './markdown';
+import { extractMarkdownHeadings, renderMarkdown } from './markdown';
 
 describe('renderMarkdown', () => {
   it('preserves escaped LaTeX delimiters for KaTeX auto-render', () => {
@@ -35,5 +35,23 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('`**迹（Trace）**在`');
 
     expect(html).toContain('<code>**迹（Trace）**在</code>');
+  });
+});
+
+describe('extractMarkdownHeadings', () => {
+  it('extracts a clean hierarchy from ATX and setext headings', () => {
+    expect(extractMarkdownHeadings(
+      '# Overview\n\nBody\n\n## **Core idea**\n\nMore body\n\nApplications\n---\n'
+    )).toEqual([
+      { level: 1, text: 'Overview' },
+      { level: 2, text: 'Core idea' },
+      { level: 2, text: 'Applications' },
+    ]);
+  });
+
+  it('ignores heading-like text inside code blocks', () => {
+    expect(extractMarkdownHeadings('```md\n# Not a section\n```\n\n## Real section')).toEqual([
+      { level: 2, text: 'Real section' },
+    ]);
   });
 });

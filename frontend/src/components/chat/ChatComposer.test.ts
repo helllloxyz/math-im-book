@@ -1,3 +1,4 @@
+import { nextTick } from 'vue'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -48,6 +49,36 @@ describe('ChatComposer', () => {
 
     expect(wrapper.emitted('ask')?.[0]).toEqual(['How does compactness work?'])
     expect(store.draftQuestion).toBe('')
+  })
+
+  it('grows with multiline content and returns to its minimum height after sending', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const wrapper = mount(ChatComposer, {
+      global: {
+        plugins: [pinia],
+      },
+    })
+    const textarea = wrapper.get('textarea')
+    const input = textarea.element as HTMLTextAreaElement
+
+    Object.defineProperty(input, 'scrollHeight', {
+      configurable: true,
+      get: () => (input.value ? 108 : 48),
+    })
+
+    await textarea.setValue('First line\nSecond line\nThird line')
+    await nextTick()
+
+    expect(input.style.height).toBe('108px')
+    expect(input.style.overflowY).toBe('hidden')
+
+    await textarea.trigger('keydown', { key: 'Enter' })
+    await nextTick()
+
+    expect(input.value).toBe('')
+    expect(input.style.height).toBe('48px')
   })
 
   it('does not submit when loading or when the draft is blank', async () => {

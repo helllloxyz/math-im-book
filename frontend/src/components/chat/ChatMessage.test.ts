@@ -5,7 +5,7 @@ import { createPinia } from 'pinia';
 import ChatMessage from './ChatMessage.vue';
 
 describe('ChatMessage anchors', () => {
-  it('uses the light question surface for user messages', () => {
+  it('collapses user questions to a compact preview by default', () => {
     const wrapper = mount(ChatMessage, {
       props: {
         message: {
@@ -28,6 +28,10 @@ describe('ChatMessage anchors', () => {
 
     expect(wrapper.classes()).toContain('user-message');
     expect(wrapper.get('.message-card').classes()).toContain('question-card');
+    const details = wrapper.get('[data-question-details]');
+    expect(details.attributes('open')).toBeUndefined();
+    expect(wrapper.get('[data-question-summary]').text()).toContain('介绍下群表示论');
+    expect(wrapper.get('.question-content').text()).toContain('介绍下群表示论');
   });
 
   it('marks selectable chat content with source metadata', () => {
@@ -136,6 +140,60 @@ describe('ChatMessage anchors', () => {
     expect(wrapper.find('[data-assistant-icon]').exists()).toBe(true);
   });
 
+  it('keeps the Markdown heading outline visible while the answer body is collapsed', async () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        assistantName: 'Gauss',
+        message: {
+          message_id: 'msg_answer_collapse',
+          role: 'assistant',
+          content: '# Compactness\n\nA concise explanation.\n\n## Open covers\n\nMore detail.',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      },
+      global: {
+        plugins: [createPinia()],
+      },
+    });
+
+    const button = wrapper.get('[data-answer-collapse]');
+    const answer = wrapper.get('#answer-msg_answer_collapse');
+    const messageContent = answer.get('.message-content');
+
+    expect(button.attributes('aria-expanded')).toBe('true');
+    expect(button.attributes('aria-label')).toBe('Collapse answer');
+    expect(button.get('.material-symbols-outlined').text()).toBe('expand_less');
+    expect(answer.get('[data-answer-outline]').attributes('style')).toContain('display: none');
+    expect(messageContent.attributes('style')).toBeUndefined();
+
+    await button.trigger('click');
+
+    expect(button.attributes('aria-expanded')).toBe('false');
+    expect(button.attributes('aria-label')).toBe('Expand answer');
+    expect(button.get('.material-symbols-outlined').text()).toBe('expand_more');
+    expect(answer.isVisible()).toBe(true);
+    expect(answer.get('[data-answer-outline]').text()).toContain('Compactness');
+    expect(answer.get('[data-answer-outline]').text()).toContain('Open covers');
+    expect(answer.get('[data-answer-outline]').attributes('style') || '').not.toContain('display: none');
+    expect(answer.get('.message-content').attributes('style')).toContain('display: none');
+    expect(answer.get('.message-content').element).toBe(messageContent.element);
+    expect(answer.get('[data-message-actions]').isVisible()).toBe(false);
+
+    await button.trigger('click');
+
+    expect(button.attributes('aria-expanded')).toBe('true');
+    expect(answer.get('[data-answer-outline]').attributes('style')).toContain('display: none');
+    expect(answer.get('.message-content').attributes('style') || '').not.toContain('display: none');
+    expect(answer.get('.message-content').element).toBe(messageContent.element);
+    expect(answer.get('.message-content').text()).toContain('A concise explanation.');
+  });
+
   it('shows a thinking indicator for an empty assistant message while loading', () => {
     const wrapper = mount(ChatMessage, {
       props: {
@@ -169,6 +227,7 @@ describe('ChatMessage anchors', () => {
 
     expect(wrapper.text()).toContain('Working through it');
     expect(wrapper.find('[data-thinking-indicator]').exists()).toBe(true);
+    expect(wrapper.find('[data-answer-collapse]').exists()).toBe(false);
   });
 
   it('renders markdown structure in message content', () => {

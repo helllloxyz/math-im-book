@@ -11,6 +11,11 @@ const markdown = new MarkdownIt({
 const cjkCharacter = /\p{Script=Han}/u;
 const punctuationCharacter = /\p{P}/u;
 
+export interface MarkdownHeading {
+  level: number;
+  text: string;
+}
+
 // CommonMark does not treat `**术语（Term）**在……` as strong emphasis because
 // the closing delimiter sits between punctuation and a CJK character. Accept
 // that common Chinese writing pattern without requiring a visible space.
@@ -81,4 +86,32 @@ export function renderMarkdown(content: string): string {
   });
 
   return rendered;
+}
+
+export function extractMarkdownHeadings(content: string): MarkdownHeading[] {
+  const tokens = markdown.parse(content || '', {});
+  const headings: MarkdownHeading[] = [];
+
+  tokens.forEach((token, index) => {
+    if (token.type !== 'heading_open') return;
+
+    const inlineToken = tokens[index + 1];
+    const text = (inlineToken?.children || [])
+      .map((child) => {
+        if (child.type === 'softbreak' || child.type === 'hardbreak') return ' ';
+        return child.content;
+      })
+      .join('')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (text) {
+      headings.push({
+        level: Number.parseInt(token.tag.slice(1), 10),
+        text,
+      });
+    }
+  });
+
+  return headings;
 }

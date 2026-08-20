@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { KnowledgeAnchor, SessionMessage } from '../../services/api'
+import { extractMarkdownHeadings } from '../../services/markdown'
 import { buildWorkspaceHref } from '../../services/workspaceNavigation'
 import MarkdownContent from '../common/MarkdownContent.vue'
 
@@ -18,9 +19,15 @@ const emit = defineEmits<{
 }>()
 
 const copied = ref(false)
+const isAnswerCollapsed = ref(false)
 const assistantAnchors = computed(() => props.message.assistant_context.anchors || [])
 const isAssistant = computed(() => props.message.role === 'assistant')
 const roleLabel = computed(() => (isAssistant.value ? props.assistantName || 'Gauss' : 'You'))
+const questionPreview = computed(() => props.message.content.replace(/\s+/g, ' ').trim())
+const answerOutline = computed(() => extractMarkdownHeadings(props.message.content))
+const answerContentId = computed(
+  () => `answer-${props.message.message_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+)
 const isThinking = computed(
   () =>
     isAssistant.value &&
@@ -57,14 +64,80 @@ const copyContent = async () => {
 </script>
 
 <template>
-  <div class="message-row" :class="isAssistant ? 'assistant-message' : 'user-message'">
+  <div
+    class="message-row"
+    :class="[
+      isAssistant ? 'assistant-message' : 'user-message',
+      { 'answer-collapsed': isAssistant && isAnswerCollapsed },
+    ]"
+  >
     <div v-if="isAssistant" class="message-identity" data-assistant-header>
       <div class="assistant-mark" data-assistant-icon>∑</div>
       <span>{{ roleLabel }}</span>
+      <button
+        v-if="!isThinking"
+        class="answer-collapse-button"
+        type="button"
+        :aria-controls="answerContentId"
+        :aria-expanded="!isAnswerCollapsed"
+        :aria-label="isAnswerCollapsed ? 'Expand answer' : 'Collapse answer'"
+        :title="isAnswerCollapsed ? 'Expand answer' : 'Collapse answer'"
+        data-answer-collapse
+        @click="isAnswerCollapsed = !isAnswerCollapsed"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">
+          {{ isAnswerCollapsed ? 'expand_more' : 'expand_less' }}
+        </span>
+      </button>
     </div>
 
-    <article class="message-card" :class="{ 'question-card': !isAssistant }">
+    <article
+      :id="isAssistant ? answerContentId : undefined"
+      class="message-card"
+      :class="{ 'question-card': !isAssistant }"
+    >
+      <nav
+        v-if="isAssistant"
+        v-show="isAnswerCollapsed"
+        class="answer-outline"
+        aria-label="Answer outline"
+        data-answer-outline
+      >
+        <span class="answer-outline-label">Answer outline</span>
+        <ol v-if="answerOutline.length">
+          <li
+            v-for="(heading, index) in answerOutline"
+            :key="`${heading.level}-${index}-${heading.text}`"
+            :style="{ '--outline-depth': heading.level - 1 }"
+          >
+            <span class="outline-marker" aria-hidden="true"></span>
+            <span>{{ heading.text }}</span>
+          </li>
+        </ol>
+        <p v-else class="answer-outline-empty">No section headings in this answer.</p>
+      </nav>
+
+      <details v-if="!isAssistant" class="question-details" data-question-details>
+        <summary data-question-summary>
+          <span class="question-label">Question</span>
+          <span class="question-preview">{{ questionPreview }}</span>
+          <span class="material-symbols-outlined question-toggle" aria-hidden="true">
+            expand_more
+          </span>
+        </summary>
+        <div
+          class="message-content question-content"
+          data-selection-source="chat-message"
+          :data-message-id="message.message_id"
+          :data-session-id="sessionId || undefined"
+        >
+          <MarkdownContent :content="message.content" />
+        </div>
+      </details>
+
       <div
+        v-if="isAssistant"
+        v-show="!isAnswerCollapsed"
         class="message-content"
         :data-selection-source="isThinking ? undefined : 'chat-message'"
         :data-message-id="isThinking ? undefined : message.message_id"
@@ -77,7 +150,12 @@ const copyContent = async () => {
         <MarkdownContent v-else :content="message.content" />
       </div>
 
-      <div v-if="isAssistant && assistantAnchors.length" class="knowledge-links" data-anchor-list>
+      <div
+        v-if="isAssistant && assistantAnchors.length"
+        v-show="!isAnswerCollapsed"
+        class="knowledge-links"
+        data-anchor-list
+      >
         <span class="knowledge-label">Saved ideas</span>
         <template
           v-for="anchor in assistantAnchors"
@@ -108,6 +186,7 @@ const copyContent = async () => {
 
       <div
         v-if="isAssistant && message.assistant_context.orchestration_plan"
+        v-show="!isAnswerCollapsed"
         class="response-details"
         data-agent-plan-strip
       >
@@ -124,7 +203,12 @@ const copyContent = async () => {
         </a>
       </div>
 
-      <div v-if="isAssistant && !isThinking" class="message-actions" data-message-actions>
+      <div
+        v-if="isAssistant && !isThinking"
+        v-show="!isAnswerCollapsed"
+        class="message-actions"
+        data-message-actions
+      >
         <a
           :href="forkHref"
           target="_blank"
@@ -160,7 +244,7 @@ const copyContent = async () => {
 .message-row {
   display: flex;
   flex-direction: column;
-  margin-bottom: 26px;
+  margin-bottom: 16px;
 }
 
 .assistant-message {
@@ -175,7 +259,7 @@ const copyContent = async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 8px 3px;
+  margin: 0 0 5px 3px;
   color: var(--color-on-surface-variant);
   font-family: var(--font-sans);
   font-size: 10px;
@@ -186,14 +270,42 @@ const copyContent = async () => {
 
 .assistant-mark {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   place-items: center;
   border-radius: 7px;
   color: var(--color-primary);
   background: var(--color-primary-fixed);
   font-family: var(--font-serif);
-  font-size: 14px;
+  font-size: 12px;
+}
+
+.answer-collapse-button {
+  display: grid;
+  width: 23px;
+  height: 23px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--color-on-surface-variant) 48%, transparent);
+  background: transparent;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.answer-collapse-button:hover,
+.answer-collapse-button:focus-visible {
+  color: color-mix(in srgb, var(--color-on-surface-variant) 76%, transparent);
+  background: rgb(var(--color-on-surface-rgb) / 0.045);
+}
+
+.answer-collapse-button:focus-visible {
+  outline: 2px solid rgb(var(--color-on-surface-rgb) / 0.18);
+  outline-offset: 2px;
+}
+
+.answer-collapse-button .material-symbols-outlined {
+  font-size: 16px;
 }
 
 .message-card {
@@ -202,17 +314,70 @@ const copyContent = async () => {
 }
 
 .assistant-message .message-card {
-  padding: 24px 27px 10px;
+  padding: 18px 22px 6px;
   border: 1px solid rgb(var(--color-on-surface-rgb) / 0.075);
   border-radius: 16px;
   background: rgb(var(--color-surface-lowest-rgb) / 0.82);
   box-shadow: 0 1px 0 rgb(var(--color-on-surface-rgb) / 0.04);
 }
 
+.answer-collapsed .message-card {
+  padding: 12px 18px;
+}
+
+.answer-outline {
+  font-family: var(--font-sans);
+}
+
+.answer-outline-label {
+  display: block;
+  margin-bottom: 7px;
+  color: color-mix(in srgb, var(--color-on-surface-variant) 70%, transparent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.answer-outline ol {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.answer-outline li {
+  display: flex;
+  min-height: 23px;
+  align-items: center;
+  gap: 8px;
+  padding-left: calc(var(--outline-depth) * 14px);
+  color: var(--color-on-surface);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.outline-marker {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-primary) 62%, transparent);
+}
+
+.answer-outline-empty {
+  margin: 0;
+  color: var(--color-on-surface-variant);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .user-message .message-card {
   width: auto;
-  max-width: 78%;
-  padding: 12px 16px;
+  max-width: 82%;
+  padding: 8px 11px;
   border: 1px solid rgb(var(--color-primary-rgb) / 0.14);
   border-radius: 14px 14px 4px 14px;
   color: var(--color-on-surface);
@@ -225,13 +390,73 @@ const copyContent = async () => {
 .message-content {
   font-family: var(--font-serif);
   font-size: 17px;
-  line-height: 1.68;
+  line-height: 1.58;
 }
 
-.user-message .message-content {
+.question-details summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.question-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.question-details summary:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid rgb(var(--color-primary-rgb) / 0.45);
+  outline-offset: 3px;
+}
+
+.question-label {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--color-primary) 82%, var(--color-on-surface));
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.question-preview {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-on-surface);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.question-toggle {
+  flex: 0 0 auto;
+  margin-left: 1px;
+  color: var(--color-on-surface-variant);
+  font-size: 16px;
+  transition: transform 140ms ease;
+}
+
+.question-details[open] .question-toggle {
+  transform: rotate(180deg);
+}
+
+.question-details[open] .question-preview {
+  display: none;
+}
+
+.question-content {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgb(var(--color-primary-rgb) / 0.12);
+}
+
+.user-message .message-content,
+.question-details summary {
   font-family: var(--font-sans);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .user-message :deep(.markdown-content) {
@@ -244,6 +469,30 @@ const copyContent = async () => {
   --tw-prose-bullets: var(--color-on-surface-variant);
   --tw-prose-quotes: var(--color-on-surface);
   --tw-prose-code: var(--color-on-surface);
+}
+
+.message-content :deep(.markdown-content > :first-child) {
+  margin-top: 0;
+}
+
+.message-content :deep(.markdown-content > :last-child) {
+  margin-bottom: 0;
+}
+
+.assistant-message :deep(.markdown-content p) {
+  margin-bottom: 0.72em;
+}
+
+.assistant-message :deep(.markdown-content h1),
+.assistant-message :deep(.markdown-content h2),
+.assistant-message :deep(.markdown-content h3) {
+  margin-top: 1.15em;
+  margin-bottom: 0.6em;
+}
+
+.assistant-message :deep(.markdown-content .katex-display) {
+  margin-top: 1.15em;
+  margin-bottom: 1.15em;
 }
 
 .thinking-indicator {
@@ -275,8 +524,8 @@ const copyContent = async () => {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.075);
 }
 
@@ -326,8 +575,8 @@ const copyContent = async () => {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  margin-top: 12px;
-  padding: 10px 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: var(--color-surface-container-low);
   font-family: var(--font-sans);
@@ -363,8 +612,8 @@ const copyContent = async () => {
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  min-height: 30px;
-  margin-top: 4px;
+  min-height: 24px;
+  margin-top: 1px;
   opacity: 0;
   transition: opacity 140ms ease;
 }
@@ -379,7 +628,7 @@ const copyContent = async () => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 7px;
+  padding: 3px 6px;
   border: 0;
   border-radius: 5px;
   color: color-mix(in srgb, var(--color-on-surface-variant) 78%, transparent);
@@ -406,11 +655,11 @@ const copyContent = async () => {
 
 @media (max-width: 640px) {
   .assistant-message .message-card {
-    padding: 19px 18px 8px;
+    padding: 16px 16px 5px;
   }
 
   .user-message .message-card {
-    max-width: 90%;
+    max-width: 94%;
   }
 
   .message-actions {

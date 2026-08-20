@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -12,6 +12,9 @@ const emit = defineEmits<{
 }>()
 
 const store = useWorkspaceStore()
+const questionInput = ref<HTMLTextAreaElement | null>(null)
+const minQuestionInputHeight = 48
+const maxQuestionInputHeight = 220
 const {
   draftQuestion,
   answerStyles,
@@ -35,6 +38,22 @@ const selectedAnswerStyleValue = computed({
 
 const isNewSession = computed(() => !currentSession.value?.session_id)
 
+const resizeQuestionInput = () => {
+  const input = questionInput.value
+  if (!input) return
+
+  input.style.height = 'auto'
+  const nextHeight = Math.min(
+    Math.max(input.scrollHeight, minQuestionInputHeight),
+    maxQuestionInputHeight
+  )
+  input.style.height = `${nextHeight}px`
+  input.style.overflowY = input.scrollHeight > maxQuestionInputHeight ? 'auto' : 'hidden'
+}
+
+watch(draftQuestion, () => nextTick(resizeQuestionInput), { flush: 'post' })
+onMounted(() => nextTick(resizeQuestionInput))
+
 const submit = () => {
   if (!draftQuestion.value.trim() || props.loading) return
   const question = draftQuestion.value
@@ -55,6 +74,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     <div data-chat-composer-shell class="composer-shell">
       <div data-chat-composer-input-row class="composer-input-row">
         <textarea
+          ref="questionInput"
           v-model="draftQuestion"
           rows="2"
           :disabled="loading"
@@ -144,9 +164,13 @@ const handleKeydown = (event: KeyboardEvent) => {
 }
 
 textarea {
+  box-sizing: border-box;
+  height: 48px;
   min-height: 48px;
+  max-height: 220px;
   flex: 1;
   resize: none;
+  overflow-y: hidden;
   border: 0;
   outline: 0;
   color: var(--color-on-surface);
