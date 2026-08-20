@@ -19,8 +19,6 @@ declare module 'katex/dist/contrib/auto-render' {
   ): void;
 }
 
-declare module 'katex/dist/contrib/copy-tex';
-
 declare module '*.css' {
   const content: { [className: string]: string };
   export default content;

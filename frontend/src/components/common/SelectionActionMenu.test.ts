@@ -130,6 +130,62 @@ describe('SelectionActionMenu', () => {
     expect(wrapper.find('[data-selection-action-menu]').exists()).toBe(false)
   })
 
+  it('uses original LaTeX when a selection starts inside rendered formula text', async () => {
+    const { wrapper, store } = mountMenu()
+    mountedWrappers.push(wrapper)
+    const draftSpy = vi.spyOn(store, 'setDraftQuestion').mockImplementation((question) => {
+      store.draftQuestion = question
+    })
+
+    createSelectionFixture(
+      `<div data-selection-source="chat-message" data-session-id="chat-1" data-message-id="msg-1">
+        <span class="katex">
+          <span class="katex-mathml"><math><semantics><annotation encoding="application/x-tex">\\mathbb{R}^n</annotation></semantics></math></span>
+          <span class="katex-html" data-selected-text aria-hidden="true">rendered formula</span>
+        </span>
+      </div>`,
+      '[data-selected-text]'
+    )
+
+    triggerSelectionShortcut('q')
+    await nextTick()
+    await wrapper.get('[data-selection-primary="continue"]').trigger('click')
+    await wrapper.get('[data-selection-secondary="continue-meaning"]').trigger('click')
+
+    expect(draftSpy).toHaveBeenCalledWith(
+      '请解释我该如何理解下面选中的内容：\n\n> $\\mathbb{R}^n$'
+    )
+  })
+
+  it('copies original LaTeX from a knowledge node selection', () => {
+    const { wrapper } = mountMenu()
+    mountedWrappers.push(wrapper)
+
+    createSelectionFixture(
+      `<article data-selection-source="knowledge-node" data-node-id="node-9">
+        <div class="katex-display">
+          <span class="katex">
+            <span class="katex-mathml"><math><semantics><annotation encoding="application/x-tex">\\int_0^1 x\\,dx</annotation></semantics></math></span>
+            <span class="katex-html" data-selected-text aria-hidden="true">rendered formula</span>
+          </span>
+        </div>
+      </article>`,
+      '[data-selected-text]'
+    )
+    const clipboardData = new Map<string, string>()
+    const event = new Event('copy', { bubbles: true, cancelable: true }) as ClipboardEvent
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        setData: vi.fn((type: string, value: string) => clipboardData.set(type, value)),
+      },
+    })
+
+    document.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(clipboardData.get('text/plain')).toBe('$$\\int_0^1 x\\,dx$$')
+  })
+
   it('uses newSession before drafting when continuing from a knowledge node selection', async () => {
     const { wrapper, store } = mountMenu()
     mountedWrappers.push(wrapper)

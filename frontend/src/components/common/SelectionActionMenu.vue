@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore, type SelectionActionPayload } from '../../stores/workspace'
 import type { SelectionKnowledgePromptKind } from '../../services/api'
+import { copySelectionAsLatex, selectionTextWithLatex } from '../../services/latexSelection'
 
 type MenuMode = 'continue' | 'knowledge' | null
 
@@ -70,6 +71,26 @@ const quoteSelectedText = (text: string) =>
 
 const buildDraftQuestion = (prompt: string, text: string) => `${prompt}\n\n${quoteSelectedText(text)}`
 
+const getSelectionSourceElement = (selection: Selection | null) => {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
+
+  const range = selection.getRangeAt(0)
+  const startElement =
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.startContainer as Element)
+      : range.startContainer.parentElement
+  const endElement =
+    range.endContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.endContainer as Element)
+      : range.endContainer.parentElement
+  const selector =
+    '[data-selection-source="chat-message"], [data-selection-source="knowledge-node"]'
+  const startSource = startElement?.closest(selector) as HTMLElement | null
+  const endSource = endElement?.closest(selector) as HTMLElement | null
+
+  return startSource && startSource === endSource ? startSource : null
+}
+
 const clampPosition = (left: number, top: number, width: number, height: number) => {
   const viewportPadding = 12
   const maxLeft = Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
@@ -111,17 +132,11 @@ const getSelectionSnapshot = (): SelectionSnapshot | null => {
   const selection = window.getSelection()
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
 
-  const text = trimSelectedText(selection.toString())
+  const text = trimSelectedText(selectionTextWithLatex(selection))
   if (!text) return null
 
   const range = selection.getRangeAt(0)
-  const ancestor =
-    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-      ? (range.commonAncestorContainer as Element)
-      : range.commonAncestorContainer.parentElement
-  const sourceElement = ancestor?.closest(
-    '[data-selection-source="chat-message"], [data-selection-source="knowledge-node"]'
-  ) as HTMLElement | null
+  const sourceElement = getSelectionSourceElement(selection)
   if (!sourceElement) return null
 
   const sourceType = sourceElement.dataset.selectionSource as SelectionActionPayload['sourceType'] | undefined
@@ -221,6 +236,13 @@ const handleSelectionChange = () => {
   void updateMenuPosition(snapshot.rect)
 }
 
+const handleCopy = (event: ClipboardEvent) => {
+  const selection = window.getSelection()
+  const sourceElement = getSelectionSourceElement(selection)
+  if (!sourceElement) return
+  copySelectionAsLatex(event, sourceElement, selection)
+}
+
 const handlePointerDown = (event: PointerEvent) => {
   const target = event.target as Node | null
   if (!isOpen.value || !target || menuRef.value?.contains(target)) return
@@ -245,6 +267,7 @@ watch(isOpen, (next) => {
 
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
+  document.addEventListener('copy', handleCopy)
   document.addEventListener('selectionchange', handleSelectionChange)
   document.addEventListener('pointerdown', handlePointerDown)
   window.addEventListener('scroll', handleScroll, true)
@@ -253,6 +276,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('copy', handleCopy)
   document.removeEventListener('selectionchange', handleSelectionChange)
   document.removeEventListener('pointerdown', handlePointerDown)
   window.removeEventListener('scroll', handleScroll, true)
