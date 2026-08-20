@@ -198,6 +198,8 @@ kill <进程号>
 tail -f math-im-book.log
 ```
 
+日常启动日志默认保持精简：保留启动地址以及警告、错误，不记录每个正常的页面和 API 请求。知识任务的进度和模型调用错误会显示在应用界面中；需要查看逐请求日志时，使用第 13 节的开发模式。
+
 长期自动启动可交给你已经使用的 systemd、supervisor 或其他进程管理软件；项目本身不再维护另一份 `deploy.sh` 或 `run-production.sh`。
 
 ## 9. 更新项目
@@ -264,7 +266,7 @@ cd frontend
 npm ci
 npm run build
 cd ..
-.venv/bin/python -m uvicorn math_im_book.api.app:create_app --factory --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn math_im_book.api.app:create_app --factory --host 127.0.0.1 --port 8000 --log-level warning --no-access-log
 ```
 
 如果 `python3` 不是 3.10-3.13，请改用实际命令，例如 `python3.12`。
@@ -278,7 +280,7 @@ cd frontend
 npm ci
 npm run build
 cd ..
-.\.venv\Scripts\python.exe -m uvicorn math_im_book.api.app:create_app --factory --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn math_im_book.api.app:create_app --factory --host 127.0.0.1 --port 8000 --log-level warning --no-access-log
 ```
 
 ## 13. 开发模式

@@ -49,4 +49,6 @@ exec "$VENV_PYTHON" -m uvicorn \
   math_im_book.api.app:create_app \
   --factory \
   --host "$HOST" \
-  --port "$PORT"
+  --port "$PORT" \
+  --log-level warning \
+  --no-access-log
