@@ -174,12 +174,12 @@ describe('NodeReferences', () => {
     expect(wrapper.text()).not.toContain('Why is scalar multiplication required?');
   });
 
-  it('calls selectNode when a node card is clicked', async () => {
+  it('opens a related concept in a new tab while preserving conversation context', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
     store.currentNode = buildNode() as any;
-    const selectNodeSpy = vi.spyOn(store, 'selectNode').mockResolvedValue(undefined);
+    store.currentSession = { session_id: 'chat-1' } as any;
 
     const wrapper = mount(NodeReferences, {
       global: {
@@ -188,9 +188,15 @@ describe('NodeReferences', () => {
     });
 
     await wrapper.get('[data-related-concepts-toggle]').trigger('click');
-    await wrapper.get('[data-reference-card="dependency:vector-space"]').trigger('click');
+    const conceptLink = wrapper.get('[data-reference-card="dependency:vector-space"]');
+    const target = new URL(conceptLink.attributes('href')!);
 
-    expect(selectNodeSpy).toHaveBeenCalledWith('vector-space');
+    expect(conceptLink.element.tagName).toBe('A');
+    expect(conceptLink.attributes('target')).toBe('_blank');
+    expect(conceptLink.attributes('rel')).toBe('noopener noreferrer');
+    expect(target.searchParams.get('view')).toBe('library');
+    expect(target.searchParams.get('session')).toBe('chat-1');
+    expect(target.searchParams.get('node')).toBe('vector-space');
   });
 
   it('resets to collapsed when the selected node changes', async () => {

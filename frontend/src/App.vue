@@ -120,10 +120,7 @@
               :assistant-name="assistantName"
               :can-regenerate="canRegenerateMessage(msg.message_id)"
               :is-loading="loading && isLatestMessage(msg.message_id)"
-              @fork="handleFork"
-              @anchor-click="handleAnchorClick"
               @regenerate="handleRegenerate"
-              @review-state="handleReviewState"
             />
           </transition-group>
         </div>
@@ -190,6 +187,7 @@ import GlobalSettings from './components/explorer/GlobalSettings.vue'
 import ReaderPanel from './components/reader/ReaderPanel.vue'
 import SelectionActionMenu from './components/common/SelectionActionMenu.vue'
 import { useWorkspaceStore } from './stores/workspace'
+import { buildWorkspaceHref, readWorkspaceTarget } from './services/workspaceNavigation'
 
 const store = useWorkspaceStore()
 const { currentSession, currentNode, loading, activeTab } = storeToRefs(store)
@@ -245,13 +243,46 @@ const handleGlobalShortcut = (event: KeyboardEvent) => {
   }
 }
 
+const initializeWorkspace = async () => {
+  const target = readWorkspaceTarget()
+
+  await Promise.all([
+    store.fetchProviderOptions(),
+    store.fetchStrategyAgents(),
+    store.fetchAnswerStyles(),
+    store.fetchSessions(),
+    store.fetchOutline(),
+    store.fetchCredentials(),
+  ])
+
+  if (target.sessionId) {
+    await store.selectSession(target.sessionId)
+  }
+
+  if (target.nodeId) {
+    await store.selectNode(target.nodeId)
+  }
+
+  if (target.view === 'fork' && target.sessionId && target.messageId) {
+    await store.fork(target.messageId)
+    const openedSessionId = currentSession.value?.session_id || target.sessionId
+    window.history.replaceState(
+      window.history.state,
+      '',
+      buildWorkspaceHref({ view: 'conversation', sessionId: openedSessionId })
+    )
+    activeTab.value = 'chat'
+  } else if (target.view === 'details' && target.messageId) {
+    store.openAgentStateForMessage(target.messageId)
+    await nextTick()
+    if (scrollContainer.value) scrollContainer.value.scrollTop = 0
+  } else if (target.view === 'library') {
+    activeTab.value = 'book'
+  }
+}
+
 onMounted(() => {
-  store.fetchProviderOptions()
-  store.fetchStrategyAgents()
-  store.fetchAnswerStyles()
-  store.fetchSessions()
-  store.fetchOutline()
-  store.fetchCredentials()
+  void initializeWorkspace()
   document.addEventListener('keydown', handleGlobalShortcut)
 })
 
@@ -280,16 +311,7 @@ const closeReader = () => {
   isReaderExpanded.value = false
 }
 
-const handleFork = (messageId: string) => store.fork(messageId)
 const handleRegenerate = (messageId: string) => store.regenerate(messageId)
-const handleReviewState = async (messageId: string) => {
-  store.openAgentStateForMessage(messageId)
-  await nextTick()
-  if (scrollContainer.value) scrollContainer.value.scrollTop = 0
-}
-const handleAnchorClick = (anchor: { node_id?: string | null }) => {
-  if (anchor.node_id) store.selectNode(anchor.node_id)
-}
 
 const canRegenerateMessage = (messageId: string) => {
   const messages = currentSession.value?.messages || []

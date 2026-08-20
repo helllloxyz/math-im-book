@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { DisplayNodeReference } from '../../services/api';
+import { buildWorkspaceHref } from '../../services/workspaceNavigation';
 
 const store = useWorkspaceStore();
 
@@ -25,7 +26,11 @@ const conceptItems = computed(() => {
     title: formatNodeTitle(reference),
     secondary: formatNodeSecondary(reference),
     direction: 'Depends on',
-    onClick: () => store.selectNode(reference.node_id),
+    href: buildWorkspaceHref({
+      view: 'library',
+      sessionId: store.currentSession?.session_id,
+      nodeId: reference.node_id,
+    }),
   }));
 
   const referencedBy = (node.value.incoming_references_display || []).map((reference) => ({
@@ -34,7 +39,11 @@ const conceptItems = computed(() => {
     title: formatNodeTitle(reference),
     secondary: formatNodeSecondary(reference),
     direction: 'Referenced by',
-    onClick: () => store.selectNode(reference.node_id),
+    href: buildWorkspaceHref({
+      view: 'library',
+      sessionId: store.currentSession?.session_id,
+      nodeId: reference.node_id,
+    }),
   }));
 
   return [...dependencies, ...referencedBy];
@@ -65,12 +74,15 @@ watch(node, () => {
     </button>
 
     <div v-if="expanded && conceptItems.length > 0" class="mt-3 grid grid-cols-1 gap-2">
-      <button
+      <a
         v-for="item in conceptItems"
         :key="item.cardId"
         :data-reference-card="item.cardId"
+        :href="item.href"
+        target="_blank"
+        rel="noopener noreferrer"
+        :aria-label="`Open ${item.title} in a new tab`"
         class="rounded-lg border border-outline-variant/10 bg-surface-container-lowest px-3 py-2 text-left transition-colors hover:border-primary/30 hover:bg-surface-container-low"
-        @click="item.onClick()"
       >
         <div class="flex items-start justify-between gap-3">
           <div>
@@ -81,7 +93,7 @@ watch(node, () => {
             {{ item.direction }}
           </span>
         </div>
-      </button>
+      </a>
     </div>
     <p
       v-else-if="expanded"

@@ -205,9 +205,10 @@ describe('ChatMessage anchors', () => {
     expect(wrapper.find('.markdown-content').exists()).toBe(true);
   });
 
-  it('renders knowledge anchors as inline actions and emits ready anchor clicks', async () => {
+  it('opens ready knowledge anchors in a new tab and keeps pending anchors disabled', () => {
     const wrapper = mount(ChatMessage, {
       props: {
+        sessionId: 'chat-1',
         message: {
           message_id: 'msg_assistant_1',
           role: 'assistant',
@@ -250,14 +251,14 @@ describe('ChatMessage anchors', () => {
 
     expect(pendingAnchor.attributes('disabled')).toBeDefined();
     expect(readyAnchor.text()).toContain('Ready anchor');
+    expect(readyAnchor.element.tagName).toBe('A');
+    expect(readyAnchor.attributes('target')).toBe('_blank');
+    expect(readyAnchor.attributes('rel')).toBe('noopener noreferrer');
 
-    await readyAnchor.trigger('click');
-
-    expect(wrapper.emitted('anchor-click')?.[0]?.[0]).toMatchObject({
-      anchor_id: 'anchor-ready',
-      node_id: 'node-42',
-      status: 'ready',
-    });
+    const target = new URL(readyAnchor.attributes('href')!);
+    expect(target.searchParams.get('view')).toBe('library');
+    expect(target.searchParams.get('session')).toBe('chat-1');
+    expect(target.searchParams.get('node')).toBe('node-42');
   });
 
   it('uses visual state only for knowledge anchor status text', () => {
@@ -321,6 +322,7 @@ describe('ChatMessage anchors', () => {
   it('keeps assistant orchestration details concise and user-visible', () => {
     const wrapper = mount(ChatMessage, {
       props: {
+        sessionId: 'chat-1',
         message: {
           message_id: 'msg_assistant_agent_summary',
           role: 'assistant',
@@ -365,12 +367,21 @@ describe('ChatMessage anchors', () => {
     expect(planStrip.text()).not.toContain('Agent:');
     expect(planStrip.text()).not.toContain('draft_first_then_answer');
     expect(planStrip.text()).not.toContain('No specific user profile');
+
+    const detailsLink = wrapper.get('[data-response-details-link]');
+    const target = new URL(detailsLink.attributes('href')!);
+    expect(detailsLink.attributes('target')).toBe('_blank');
+    expect(detailsLink.attributes('rel')).toBe('noopener noreferrer');
+    expect(target.searchParams.get('view')).toBe('details');
+    expect(target.searchParams.get('session')).toBe('chat-1');
+    expect(target.searchParams.get('message')).toBe('msg_assistant_agent_summary');
   });
 
   it('uses compact spacing for assistant controls, anchors, and agent feedback', () => {
     const wrapper = mount(ChatMessage, {
       props: {
         canRegenerate: true,
+        sessionId: 'chat-1',
         message: {
           message_id: 'msg_assistant_compact',
           role: 'assistant',
@@ -431,6 +442,15 @@ describe('ChatMessage anchors', () => {
 
     const actionBar = wrapper.get('[data-message-actions]');
     expect(actionBar.classes()).toContain('message-actions');
+
+    const forkLink = wrapper.get('[data-fork-link]');
+    const forkTarget = new URL(forkLink.attributes('href')!);
+    expect(forkLink.element.tagName).toBe('A');
+    expect(forkLink.attributes('target')).toBe('_blank');
+    expect(forkLink.attributes('rel')).toBe('noopener noreferrer');
+    expect(forkTarget.searchParams.get('view')).toBe('fork');
+    expect(forkTarget.searchParams.get('session')).toBe('chat-1');
+    expect(forkTarget.searchParams.get('message')).toBe('msg_assistant_compact');
 
     for (const action of wrapper.findAll('[data-message-action]')) {
       expect(action.find('.material-symbols-outlined').exists()).toBe(true);

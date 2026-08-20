@@ -5,8 +5,8 @@ import { createPinia, setActivePinia } from 'pinia';
 vi.mock('./components/chat/ChatMessage.vue', () => ({
   default: {
     name: 'ChatMessage',
-    props: ['message', 'assistantName', 'canRegenerate', 'isLoading'],
-    emits: ['regenerate', 'anchor-click', 'review-state'],
+    props: ['message', 'assistantName', 'canRegenerate', 'isLoading', 'sessionId'],
+    emits: ['regenerate'],
     template: `
       <div
         data-stub="chat-message"
@@ -19,22 +19,6 @@ vi.mock('./components/chat/ChatMessage.vue', () => ({
           @click="$emit('regenerate', message.message_id)"
         >
           {{ message.message_id }}
-        </button>
-        <button
-          v-if="message.role === 'assistant'"
-          data-stub="review-state"
-          @click="$emit('review-state', message.message_id)"
-        >
-          Review
-        </button>
-        <button
-          v-for="anchor in (message.assistant_context?.anchors || [])"
-          :key="anchor.anchor_id"
-          :data-anchor-id="anchor.anchor_id"
-          :disabled="anchor.status !== 'ready' || !anchor.node_id"
-          @click="$emit('anchor-click', anchor)"
-        >
-          {{ anchor.label }}
         </button>
       </div>
     `,
@@ -82,6 +66,7 @@ describe('App new session flow', () => {
   beforeEach(() => {
     const pinia = createPinia();
     setActivePinia(pinia);
+    window.history.replaceState({}, '', '/');
   });
 
   function mockStartupFetches(store: ReturnType<typeof useWorkspaceStore>) {
@@ -325,66 +310,64 @@ describe('App new session flow', () => {
     expect(regenerateSpy).toHaveBeenCalledWith('msg_assistant_2');
   });
 
-  it('routes anchor clicks from the latest assistant message to the reader store', async () => {
+  it('loads a linked library node in its own workspace view', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
     mockStartupFetches(store);
+    window.history.replaceState({}, '', '/?view=library&session=chat-1&node=node-42');
+    const selectSessionSpy = vi.spyOn(store, 'selectSession').mockResolvedValue(undefined);
     const selectNodeSpy = vi.spyOn(store, 'selectNode').mockResolvedValue(undefined);
 
-    store.currentSession = {
-      session_id: 'chat-1',
-      title: 'Current session',
-      icon: 'sigma',
-      branch: {
-        active_node_ids: [],
-        summary_node_ids: [],
-        active_symbols: {},
-      },
-      messages: [
-        {
-          message_id: 'msg_user_1',
-          role: 'user',
-          content: 'first question',
-          assistant_context: {
-            referenced_node_ids: [],
-            symbol_conflicts: [],
-            alignment_notes: [],
-          },
-          created_at: '2026-04-02T09:00:00Z',
-        },
-        {
-          message_id: 'msg_assistant_1',
-          role: 'assistant',
-          content: 'first answer',
-          assistant_context: {
-            referenced_node_ids: [],
-            symbol_conflicts: [],
-            alignment_notes: [],
-            anchors: [
-              {
-                anchor_id: 'anchor-1',
-                label: 'Resolved node',
-                status: 'ready',
-                node_id: 'node-42',
-              },
-            ],
-          },
-          created_at: '2026-04-02T09:00:01Z',
-        },
-      ],
-    } as any;
-
-    const wrapper = mount(App, {
+    mount(App, {
       global: {
         plugins: [pinia],
       },
     });
 
-    const anchorButton = wrapper.get('[data-anchor-id="anchor-1"]');
-    await anchorButton.trigger('click');
+    await vi.waitFor(() => expect(selectNodeSpy).toHaveBeenCalledWith('node-42'));
+    expect(selectSessionSpy).toHaveBeenCalledWith('chat-1');
+    expect(store.activeTab).toBe('book');
+  });
 
-    expect(selectNodeSpy).toHaveBeenCalledWith('node-42');
+  it('creates a linked fork in the new workspace and replaces the one-shot URL', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    mockStartupFetches(store);
+    window.history.replaceState(
+      {},
+      '',
+      '/?view=fork&session=chat-1&message=msg-assistant-1'
+    );
+
+    const sourceSession = {
+      session_id: 'chat-1',
+      title: 'Source conversation',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [],
+    } as any;
+    const forkedSession = {
+      ...sourceSession,
+      session_id: 'chat-2',
+      title: 'Forked conversation',
+    } as any;
+    const selectSessionSpy = vi.spyOn(store, 'selectSession').mockImplementation(async () => {
+      store.currentSession = sourceSession;
+    });
+    const forkSpy = vi.spyOn(store, 'fork').mockImplementation(async () => {
+      store.currentSession = forkedSession;
+    });
+
+    mount(App, { global: { plugins: [pinia] } });
+
+    await vi.waitFor(() => expect(forkSpy).toHaveBeenCalledWith('msg-assistant-1'));
+    const resolvedUrl = new URL(window.location.href);
+    expect(selectSessionSpy).toHaveBeenCalledWith('chat-1');
+    expect(resolvedUrl.searchParams.get('view')).toBe('conversation');
+    expect(resolvedUrl.searchParams.get('session')).toBe('chat-2');
+    expect(resolvedUrl.searchParams.has('message')).toBe(false);
+    expect(store.activeTab).toBe('chat');
   });
 
   it('does not expose regenerate controls for non-latest assistant messages', async () => {
@@ -551,11 +534,17 @@ describe('App new session flow', () => {
     expect(transcript.classes()).toContain('conversation-transcript');
   });
 
-  it('starts response details at the top after opening them from a long conversation', async () => {
+  it('loads linked response details at the top of a new workspace', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
     mockStartupFetches(store);
+    window.history.replaceState(
+      {},
+      '',
+      '/?view=details&session=chat-1&message=msg_assistant_1'
+    );
+    const selectSessionSpy = vi.spyOn(store, 'selectSession').mockResolvedValue(undefined);
     vi.spyOn(store, 'fetchAgentState').mockResolvedValue(undefined);
     store.currentSession = {
       session_id: 'chat-1',
@@ -576,11 +565,11 @@ describe('App new session flow', () => {
     const scroll = wrapper.get('.workspace-scroll').element as HTMLElement;
     scroll.scrollTop = 420;
 
-    await wrapper.get('[data-stub="review-state"]').trigger('click');
-    await vi.waitFor(() => expect(scroll.scrollTop).toBe(0));
+    await vi.waitFor(() => expect(store.activeTab).toBe('agent'));
 
-    expect(store.activeTab).toBe('agent');
+    expect(selectSessionSpy).toHaveBeenCalledWith('chat-1');
     expect(store.focusedAgentMessageId).toBe('msg_assistant_1');
+    expect(scroll.scrollTop).toBe(0);
   });
 
   it('uses one assistant persona name for every assistant message in a session', async () => {

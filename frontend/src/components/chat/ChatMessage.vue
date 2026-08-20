@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { KnowledgeAnchor, SessionMessage } from '../../services/api'
+import { buildWorkspaceHref } from '../../services/workspaceNavigation'
 import MarkdownContent from '../common/MarkdownContent.vue'
 
 const props = defineProps<{
@@ -12,11 +13,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (event: 'fork', messageId: string): void
   (event: 'copy', content: string): void
   (event: 'regenerate', messageId: string): void
-  (event: 'anchor-click', anchor: KnowledgeAnchor): void
-  (event: 'review-state', messageId: string): void
 }>()
 
 const copied = ref(false)
@@ -32,9 +30,23 @@ const isThinking = computed(
 
 const canOpenAnchor = (anchor: KnowledgeAnchor) => anchor.status === 'ready' && !!anchor.node_id
 
-const openAnchor = (anchor: KnowledgeAnchor) => {
-  if (canOpenAnchor(anchor)) emit('anchor-click', anchor)
-}
+const anchorHref = (anchor: KnowledgeAnchor) => buildWorkspaceHref({
+  view: 'library',
+  sessionId: props.sessionId || undefined,
+  nodeId: anchor.node_id || undefined,
+})
+
+const detailsHref = computed(() => buildWorkspaceHref({
+  view: 'details',
+  sessionId: props.sessionId || undefined,
+  messageId: props.message.message_id,
+}))
+
+const forkHref = computed(() => buildWorkspaceHref({
+  view: 'fork',
+  sessionId: props.sessionId || undefined,
+  messageId: props.message.message_id,
+}))
 
 const copyContent = async () => {
   await navigator.clipboard.writeText(props.message.content)
@@ -67,18 +79,31 @@ const copyContent = async () => {
 
       <div v-if="isAssistant && assistantAnchors.length" class="knowledge-links" data-anchor-list>
         <span class="knowledge-label">Saved ideas</span>
-        <button
+        <template
           v-for="anchor in assistantAnchors"
           :key="anchor.anchor_id"
-          :data-anchor-id="anchor.anchor_id"
-          :disabled="!canOpenAnchor(anchor)"
-          type="button"
-          @click="openAnchor(anchor)"
         >
-          {{ anchor.label }}
-          <span v-if="canOpenAnchor(anchor)" class="material-symbols-outlined">arrow_outward</span>
-          <span v-else class="anchor-status">{{ anchor.status }}</span>
-        </button>
+          <a
+            v-if="canOpenAnchor(anchor)"
+            :data-anchor-id="anchor.anchor_id"
+            :href="anchorHref(anchor)"
+            target="_blank"
+            rel="noopener noreferrer"
+            :aria-label="`Open ${anchor.label} in a new tab`"
+          >
+            {{ anchor.label }}
+            <span class="material-symbols-outlined">open_in_new</span>
+          </a>
+          <button
+            v-else
+            :data-anchor-id="anchor.anchor_id"
+            type="button"
+            disabled
+          >
+            {{ anchor.label }}
+            <span class="anchor-status">{{ anchor.status }}</span>
+          </button>
+        </template>
       </div>
 
       <div
@@ -87,17 +112,31 @@ const copyContent = async () => {
         data-agent-plan-strip
       >
         <p>{{ message.assistant_context.orchestration_plan.user_visible_summary }}</p>
-        <button type="button" @click="emit('review-state', message.message_id)">
+        <a
+          :href="detailsHref"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Open response details in a new tab"
+          data-response-details-link
+        >
           View details
-          <span class="material-symbols-outlined">arrow_forward</span>
-        </button>
+          <span class="material-symbols-outlined">open_in_new</span>
+        </a>
       </div>
 
       <div v-if="isAssistant && !isThinking" class="message-actions" data-message-actions>
-        <button type="button" title="Fork conversation" data-message-action @click="emit('fork', message.message_id)">
+        <a
+          :href="forkHref"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Fork conversation in a new tab"
+          aria-label="Fork conversation in a new tab"
+          data-message-action
+          data-fork-link
+        >
           <span class="material-symbols-outlined">alt_route</span>
           Fork
-        </button>
+        </a>
         <button type="button" title="Copy response" data-message-action @click="copyContent">
           <span class="material-symbols-outlined">{{ copied ? 'check' : 'content_copy' }}</span>
           {{ copied ? 'Copied' : 'Copy' }}
@@ -251,6 +290,7 @@ const copyContent = async () => {
   text-transform: uppercase;
 }
 
+.knowledge-links a,
 .knowledge-links button {
   display: inline-flex;
   align-items: center;
@@ -262,6 +302,7 @@ const copyContent = async () => {
   background: var(--color-primary-fixed);
   font-family: var(--font-sans);
   font-size: 10px;
+  text-decoration: none;
 }
 
 .knowledge-links button:disabled {
@@ -299,7 +340,7 @@ const copyContent = async () => {
   line-height: 1.45;
 }
 
-.response-details button {
+.response-details a {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -309,6 +350,7 @@ const copyContent = async () => {
   background: transparent;
   font-size: 9px;
   font-weight: 600;
+  text-decoration: none;
   text-transform: uppercase;
 }
 
@@ -332,6 +374,7 @@ const copyContent = async () => {
   opacity: 1;
 }
 
+.message-actions a,
 .message-actions button {
   display: inline-flex;
   align-items: center;
@@ -343,8 +386,10 @@ const copyContent = async () => {
   background: transparent;
   font-family: var(--font-sans);
   font-size: 9px;
+  text-decoration: none;
 }
 
+.message-actions a:hover,
 .message-actions button:hover {
   color: var(--color-primary);
   background: var(--color-primary-fixed);
