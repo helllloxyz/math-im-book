@@ -155,9 +155,10 @@ describe('SessionTree', () => {
     });
 
     await wrapper.get('[data-session-icon-trigger="chat-1"]').trigger('click');
-    await wrapper.get('[data-session-icon-option="atom"]').trigger('click');
+    expect(wrapper.findAll('[data-session-icon-option]').length).toBe(12);
+    await wrapper.get('[data-session-icon-option="group-theory"]').trigger('click');
 
-    expect(updateIconSpy).toHaveBeenCalledWith('chat-1', 'atom');
+    expect(updateIconSpy).toHaveBeenCalledWith('chat-1', 'group-theory');
   });
 
   it('renames and deletes conversations from the item menu', async () => {

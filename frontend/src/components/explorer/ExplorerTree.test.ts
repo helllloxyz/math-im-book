@@ -244,7 +244,9 @@ describe('ExplorerTree', () => {
       },
     });
 
-    expect(wrapper.find('[data-explorer-item-icon="chat-1"]').text()).toBe('calculate');
+    const categoryIcon = wrapper.find('[data-explorer-item-icon="chat-1"]');
+    expect(categoryIcon.element.tagName).toBe('IMG');
+    expect(categoryIcon.attributes('data-math-category')).toBe('discrete-combinatorics');
   });
 
   it('emits session icon updates from the icon picker', async () => {
@@ -278,9 +280,9 @@ describe('ExplorerTree', () => {
     });
 
     await wrapper.get('[data-session-icon-trigger="chat-1"]').trigger('click');
-    await wrapper.get('[data-session-icon-option="wave"]').trigger('click');
+    await wrapper.get('[data-session-icon-option="applied-modeling"]').trigger('click');
 
-    expect(wrapper.emitted('update-session-icon')?.[0]).toEqual(['chat-1', 'wave']);
+    expect(wrapper.emitted('update-session-icon')?.[0]).toEqual(['chat-1', 'applied-modeling']);
   });
 
   it('emits knowledge icon updates from the same icon picker', async () => {

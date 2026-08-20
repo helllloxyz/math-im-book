@@ -787,6 +787,19 @@ input:focus-visible {
   opacity: 0.78;
 }
 
+.math-category-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  filter: drop-shadow(0 1px 1px rgb(48 43 34 / 0.12));
+  object-fit: contain;
+}
+
+.explorer-tree-category-icon {
+  margin: 0 1px;
+}
+
 .explorer-tree-count {
   flex: 0 0 auto;
   color: #8a8c83;
@@ -841,6 +854,19 @@ input:focus-visible {
   box-shadow: 0 16px 36px rgb(56 50 42 / 0.16);
 }
 
+.explorer-tree-icon-picker.is-category-picker {
+  width: 236px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 7px;
+  border-color: #cec8bb;
+  border-radius: 12px;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.82), transparent 46%),
+    #fffaf1;
+  box-shadow: 0 20px 46px rgb(56 50 42 / 0.2), 0 2px 8px rgb(56 50 42 / 0.08);
+}
+
 .explorer-tree-icon-option {
   display: inline-flex;
   width: 30px;
@@ -856,6 +882,53 @@ input:focus-visible {
 .explorer-tree-icon-option:hover {
   color: #29483e;
   background: #dfe8e1;
+}
+
+.explorer-tree-icon-option.is-category-option {
+  width: auto;
+  height: 36px;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #4e504a;
+  text-align: left;
+}
+
+.explorer-tree-icon-option.is-category-option .math-category-icon {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.explorer-tree-icon-option.is-category-option:hover {
+  border-color: #d9d5c9;
+  color: #273f37;
+  background: rgb(239 241 232 / 0.88);
+}
+
+.explorer-tree-icon-option.is-category-option:hover .math-category-icon {
+  filter: drop-shadow(0 3px 3px rgb(48 43 34 / 0.18));
+  transform: translateY(-1px) rotate(-2deg) scale(1.05);
+}
+
+.explorer-tree-icon-option.is-category-option.is-selected {
+  border-color: #b9ccc0;
+  background: #e5ede6;
+  box-shadow: inset 2px 0 0 #5f8977;
+}
+
+.explorer-tree-icon-option-label {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-label);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .explorer-tree-label {

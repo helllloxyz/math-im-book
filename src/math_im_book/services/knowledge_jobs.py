@@ -5,6 +5,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from threading import Lock, Thread
+from typing import Callable
 from uuid import uuid4
 
 from math_im_book.domain.models import (
@@ -72,7 +73,15 @@ class InMemoryKnowledgeJobRepository:
         self.concurrent_runner = concurrent_runner or ThreadPoolOrderedConcurrentRunner()
         self.explorer_store = explorer_store
         self._jobs: dict[str, KnowledgeJobRecord] = {}
+        self._terminal_listeners: list[Callable[[KnowledgeJobRecord], None]] = []
         self._lock = Lock()
+
+    def add_terminal_listener(
+        self,
+        listener: Callable[[KnowledgeJobRecord], None],
+    ) -> None:
+        with self._lock:
+            self._terminal_listeners.append(listener)
 
     def submit_compile_job(
         self,
@@ -127,12 +136,16 @@ class InMemoryKnowledgeJobRepository:
         session_id: str,
         source_message_id: str,
     ) -> None:
+        should_notify = False
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 raise KeyError(job_id)
             job.session_id = session_id
             job.source_message_id = source_message_id
+            should_notify = job.status in {"completed", "failed"}
+        if should_notify:
+            self._notify_terminal_listeners(job_id)
 
     def run_job(self, job_id: str) -> KnowledgeJobRecord:
         self._run_job(job_id)
@@ -164,7 +177,21 @@ class InMemoryKnowledgeJobRepository:
                         )
                         for anchor in job.anchors
                     ]
-            return
+        self._notify_terminal_listeners(job_id)
+
+    def _notify_terminal_listeners(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.status not in {"completed", "failed"}:
+                return
+            snapshot = copy.deepcopy(job)
+            listeners = list(self._terminal_listeners)
+        for listener in listeners:
+            try:
+                listener(snapshot)
+            except Exception:
+                # A failed observer must not change the result of a completed compile.
+                continue
 
     def _compile_job(self, job_id: str) -> None:
         job = self._get_job_or_raise(job_id)

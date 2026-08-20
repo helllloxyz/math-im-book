@@ -109,7 +109,22 @@ from math_im_book.storage.sessions import (
 )
 from math_im_book.storage.user_profile import FileUserProfileRepository
 
-DEFAULT_SESSION_ICONS = (
+MATH_SESSION_CATEGORIES = {
+    "algebra": "Algebraic expressions, equations, polynomials, and symbolic manipulation",
+    "geometry": "Euclidean, analytic, projective, and differential geometry",
+    "linear-algebra": "Vectors, matrices, linear maps, eigenvalues, and tensors",
+    "calculus-analysis": "Calculus, real or complex analysis, limits, series, and measure theory",
+    "group-theory": "Groups, rings, fields, representations, symmetry, and abstract algebra",
+    "number-theory": "Integers, primes, Diophantine equations, and arithmetic",
+    "probability-statistics": "Probability, statistics, stochastic processes, and inference",
+    "discrete-combinatorics": "Combinatorics, graph theory, algorithms, and discrete structures",
+    "logic-foundations": "Logic, set theory, category theory, type theory, and foundations",
+    "topology": "Topology, manifolds, knots, homotopy, and related spaces",
+    "applied-modeling": "Differential equations, numerical methods, optimization, physics, and modeling",
+    "general": "Mixed, elementary, historical, or otherwise cross-category mathematics",
+}
+DEFAULT_SESSION_CATEGORY = "general"
+DEFAULT_KNOWLEDGE_ICONS = (
     "function",
     "sigma",
     "matrix",
@@ -423,13 +438,6 @@ def create_app(
                 state_items=list(result.state_items),
             ),
         )
-        if result.answer.knowledge_job_id is not None:
-            resolved_knowledge_job_repository.attach_source_message(
-                result.answer.knowledge_job_id,
-                session_id=session_id,
-                source_message_id=assistant_message.message_id,
-            )
-
         branch_context = (
             result.branch_context
             if result.branch_context is not None
@@ -439,10 +447,14 @@ def create_app(
                 else SessionBranchContext()
             )
         )
-        title = (
-            existing_record.title
-            if existing_record is not None and existing_record.title
-            else _generate_session_title(
+        generated_title = None
+        generated_category = None
+        if (
+            existing_record is None
+            or not existing_record.title
+            or not existing_record.icon
+        ):
+            generated_title, generated_category = _generate_session_identity(
                 session_id=session_id,
                 question=payload.question,
                 answer=result.answer.assistant_text,
@@ -451,11 +463,15 @@ def create_app(
                 provider_options_payload=provider_options.load(),
                 provider_gateway=resolved_provider_gateway,
             )
+        title = (
+            existing_record.title
+            if existing_record is not None and existing_record.title
+            else generated_title or payload.question.strip()
         )
         icon = (
             existing_record.icon
             if existing_record is not None and existing_record.icon
-            else _default_session_icon(session_id)
+            else generated_category or DEFAULT_SESSION_CATEGORY
         )
 
         if existing_record is None:
@@ -490,6 +506,12 @@ def create_app(
             provider_profile=provider_profile,
         )
         sessions.save_working_turn(session_id, None)
+        if result.answer.knowledge_job_id is not None:
+            resolved_knowledge_job_repository.attach_source_message(
+                result.answer.knowledge_job_id,
+                session_id=session_id,
+                source_message_id=assistant_message.message_id,
+            )
 
         saved_record = sessions.load_record(session_id)
         if saved_record is None:
@@ -689,12 +711,84 @@ def create_app(
                 orchestration_plan=message.assistant_context.orchestration_plan,
                 state_items=state_items,
             )
+            if updated_context == message.assistant_context:
+                updated_messages.append(message)
+                continue
             updated_messages.append(
                 replace(message, assistant_context=updated_context)
             )
             changed = True
         if changed:
             sessions.save_record(replace(record, messages=updated_messages))
+
+    def _reconcile_ready_knowledge_items(record: SessionRecord) -> SessionRecord:
+        active_jobs = {
+            (
+                job.source_message_id,
+                draft.title.strip().casefold(),
+            )
+            for job in resolved_knowledge_job_repository.list_jobs(record.session_id)
+            if job.status in {"queued", "running", "writing"}
+            for draft in job.draft_requests
+        }
+        ready_nodes_by_title = {
+            node.title.strip().casefold(): node
+            for node in knowledge_repository.list_nodes()
+            if node.status == "ready" and node.source == record.session_id
+        }
+        reconciled = False
+        for message in record.messages:
+            ready_anchors: list[AnswerAnchor] = []
+            for item in message.assistant_context.state_items:
+                if item.kind != "knowledge_draft" or item.state not in {
+                    "pending",
+                    "queued",
+                    "running",
+                    "writing",
+                }:
+                    continue
+                title_key = item.title.strip().casefold()
+                if (message.message_id, title_key) in active_jobs:
+                    continue
+                node = ready_nodes_by_title.get(title_key)
+                if node is None:
+                    continue
+                existing_anchor = next(
+                    (
+                        anchor
+                        for anchor in message.assistant_context.anchors
+                        if anchor.label.strip().casefold() == title_key
+                    ),
+                    None,
+                )
+                ready_anchors.append(
+                    AnswerAnchor(
+                        anchor_id=(
+                            existing_anchor.anchor_id
+                            if existing_anchor is not None
+                            else node.id
+                        ),
+                        label=item.title,
+                        status="ready",
+                        node_id=node.id,
+                    )
+                )
+            if not ready_anchors:
+                continue
+            _merge_job_anchors_into_session_message(
+                session_id=record.session_id,
+                message_id=message.message_id,
+                anchors=ready_anchors,
+                state="ready",
+            )
+            reconciled = True
+        if not reconciled:
+            return record
+        return sessions.load_record(record.session_id) or record
+
+    resolved_knowledge_job_repository.add_terminal_listener(
+        _sync_knowledge_job_to_session
+    )
 
     @app.get("/api/knowledge-jobs/{job_id}", response_model=KnowledgeJobSchema)
     def get_knowledge_job(job_id: str) -> KnowledgeJobSchema:
@@ -905,6 +999,12 @@ def create_app(
                 provider_options_payload=provider_options.load(),
             )
         )
+        _merge_job_anchors_into_session_message(
+            session_id=session_id,
+            message_id=message_id,
+            anchors=anchors,
+            state="queued",
+        )
         job = resolved_knowledge_job_repository.submit_compile_job(
             session_id=session_id,
             source_message_id=message_id,
@@ -914,12 +1014,6 @@ def create_app(
             draft_requests=draft_requests,
             provider_profile=provider_profile,
             symbol_constraints=dict(record.branch_context.active_symbols),
-        )
-        _merge_job_anchors_into_session_message(
-            session_id=session_id,
-            message_id=message_id,
-            anchors=job.anchors,
-            state="queued",
         )
         refreshed = resolved_knowledge_job_repository.get_job(job.job_id) or job
         return KnowledgeJobSchema.model_validate(
@@ -1045,7 +1139,7 @@ def create_app(
                 "item_id": node.id,
                 "id": node.id,
                 "title": node.title,
-                "icon": _default_session_icon(node.id),
+                "icon": _default_knowledge_icon(node.id),
                 "type": node.type,
                 "summary": node.summary,
                 "parent_id": node.parent_id,
@@ -1117,6 +1211,7 @@ def create_app(
         record = sessions.load_record(session_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Session not found")
+        record = _reconcile_ready_knowledge_items(record)
         record = _hydrated_record_provider_profile(
             record,
             credential_registry=credentials,
@@ -1513,6 +1608,7 @@ def create_app(
         record = sessions.load_record(session_id) if session_id else _latest_session_record(sessions)
         if record is None:
             return AgentStateResponseSchema()
+        record = _reconcile_ready_knowledge_items(record)
         return _agent_state_for_record(record, resolved_knowledge_job_repository)
 
     return app
@@ -1634,9 +1730,9 @@ def _agent_state_for_record(
     )
 
 
-def _default_session_icon(session_id: str) -> str:
-    checksum = sum(ord(char) for char in session_id)
-    return DEFAULT_SESSION_ICONS[checksum % len(DEFAULT_SESSION_ICONS)]
+def _default_knowledge_icon(node_id: str) -> str:
+    checksum = sum(ord(char) for char in node_id)
+    return DEFAULT_KNOWLEDGE_ICONS[checksum % len(DEFAULT_KNOWLEDGE_ICONS)]
 
 
 def _slugify(text: str) -> str:
@@ -1644,7 +1740,7 @@ def _slugify(text: str) -> str:
     return slug or "generated-node"
 
 
-def _generate_session_title(
+def _generate_session_identity(
     session_id: str | None,
     question: str,
     answer: str,
@@ -1652,27 +1748,38 @@ def _generate_session_title(
     credential_registry: FileCredentialRegistry,
     provider_options_payload: dict[str, object],
     provider_gateway: ProviderGateway | object | None,
-) -> str:
+) -> tuple[str, str]:
     fallback_title = question.strip()
+    fallback = (fallback_title, DEFAULT_SESSION_CATEGORY)
     title_profile = _title_generation_provider_profile(
         provider_profile=provider_profile,
         credential_registry=credential_registry,
         provider_options_payload=provider_options_payload,
     )
     if title_profile is None or provider_gateway is None:
-        return fallback_title
+        return fallback
 
     prompt_messages = [
         f"User: {question.strip()}",
         f"Assistant: {answer.strip()}",
     ]
+    category_guide = "\n".join(
+        f'- "{category}": {description}'
+        for category, description in MATH_SESSION_CATEGORIES.items()
+    )
     try:
         provider_result = provider_gateway.generate(
             title_profile,
             ProviderRequest(
                 system_instruction=(
-                    "Write a short conversation title for a math discussion. "
-                    "Return only the title, with no quotes, punctuation suffix, or explanation."
+                    "Create a short title and choose the single best category for this math "
+                    "conversation. Trust the mathematical subject, not superficial keywords. "
+                    "Prefer the more specific category when a topic fits several categories "
+                    "(for example, group theory over algebra, linear algebra over algebra, and "
+                    "topology over geometry). Return exactly one JSON object with two string "
+                    'fields: {"title":"...","category":"..."}. The title must have no '
+                    "punctuation suffix. The category must be one of these ids:\n"
+                    f"{category_guide}"
                 ),
                 user_message="\n".join(prompt_messages),
                 session_id=session_id,
@@ -1680,10 +1787,30 @@ def _generate_session_title(
             ),
         )
     except (KeyError, ProviderError, AttributeError, TypeError, ValueError):
-        return fallback_title
+        return fallback
 
-    candidate = provider_result.output_text.strip().strip('"').strip()
-    return candidate or fallback_title
+    parsed = _parse_session_identity(provider_result.output_text)
+    return parsed or fallback
+
+
+def _parse_session_identity(output_text: str) -> tuple[str, str] | None:
+    candidate = output_text.strip()
+    if candidate.startswith("```"):
+        candidate = re.sub(r"^```(?:json)?\s*", "", candidate, flags=re.IGNORECASE)
+        candidate = re.sub(r"\s*```$", "", candidate)
+    try:
+        payload = json.loads(candidate)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    title = payload.get("title")
+    category = payload.get("category")
+    if not isinstance(title, str) or not title.strip():
+        return None
+    if not isinstance(category, str) or category not in MATH_SESSION_CATEGORIES:
+        return None
+    return title.strip().rstrip("。.!！?？;；:："), category
 
 
 def _title_generation_provider_profile(

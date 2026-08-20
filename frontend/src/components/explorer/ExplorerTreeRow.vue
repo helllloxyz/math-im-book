@@ -127,28 +127,53 @@
         :aria-expanded="iconPickerOpen ? 'true' : 'false'"
         @click.stop="iconPickerOpen = !iconPickerOpen"
       >
+        <MathCategoryIcon
+          v-if="isSessionItem"
+          :category-id="sessionCategory.id"
+        />
         <span
+          v-else
           class="material-symbols-outlined explorer-tree-icon"
           :data-explorer-item-icon="currentItemId"
           aria-hidden="true"
         >{{ itemIcon }}</span>
       </button>
-      <div v-if="iconPickerOpen" class="explorer-tree-icon-picker" role="menu">
+      <div
+        v-if="iconPickerOpen"
+        class="explorer-tree-icon-picker"
+        :class="{ 'is-category-picker': isSessionItem }"
+        role="menu"
+        :aria-label="isSessionItem ? 'Choose a mathematics category' : 'Choose an icon'"
+      >
         <button
-          v-for="icon in iconChoices"
+          v-for="icon in availableIconChoices"
           :key="icon.id"
           type="button"
           class="explorer-tree-icon-option"
+          :class="{
+            'is-category-option': isSessionItem,
+            'is-selected': isSessionItem && icon.id === sessionCategory.id,
+          }"
           :data-session-icon-option="isSessionItem ? icon.id : undefined"
           :data-item-icon-option="!isSessionItem ? icon.id : undefined"
-          :aria-label="`Use ${icon.id} icon`"
+          :aria-label="`Use ${icon.label} icon`"
+          :aria-current="isSessionItem && icon.id === sessionCategory.id ? 'true' : undefined"
+          :title="icon.description"
           role="menuitem"
           @click.stop="chooseIcon(icon.id)"
         >
-          <span class="material-symbols-outlined" aria-hidden="true">{{ icon.iconName }}</span>
+          <MathCategoryIcon v-if="isSessionItem" :category-id="icon.id" />
+          <span v-else class="material-symbols-outlined" aria-hidden="true">{{ icon.iconName }}</span>
+          <span v-if="isSessionItem" class="explorer-tree-icon-option-label">{{ icon.label }}</span>
         </button>
       </div>
     </span>
+    <MathCategoryIcon
+      v-else-if="isSessionItem"
+      class="explorer-tree-category-icon"
+      :category-id="sessionCategory.id"
+      :data-explorer-item-icon="currentItemId"
+    />
     <span
       v-else
       class="material-symbols-outlined explorer-tree-icon"
@@ -212,6 +237,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ExplorerItemType, ExplorerTreeNode } from '../../services/api';
+import MathCategoryIcon from './MathCategoryIcon.vue';
+import { MATH_CATEGORIES, mathCategoryFor } from './mathCategories';
 
 defineOptions({ name: 'ExplorerTreeRow' });
 
@@ -249,17 +276,17 @@ const emit = defineEmits<{
 }>();
 
 const EXPLORER_DRAG_MIME = 'application/x-math-im-book-explorer-item';
-const iconChoices = [
-  { id: 'function', iconName: 'functions' },
-  { id: 'sigma', iconName: 'calculate' },
-  { id: 'matrix', iconName: 'grid_on' },
-  { id: 'triangle', iconName: 'change_history' },
-  { id: 'atom', iconName: 'science' },
-  { id: 'wave', iconName: 'water' },
-  { id: 'orbit', iconName: 'all_inclusive' },
+const itemIconChoices = [
+  { id: 'function', label: 'Function', description: 'Use function icon', iconName: 'functions' },
+  { id: 'sigma', label: 'Sigma', description: 'Use sigma icon', iconName: 'calculate' },
+  { id: 'matrix', label: 'Matrix', description: 'Use matrix icon', iconName: 'grid_on' },
+  { id: 'triangle', label: 'Triangle', description: 'Use triangle icon', iconName: 'change_history' },
+  { id: 'atom', label: 'Atom', description: 'Use atom icon', iconName: 'science' },
+  { id: 'wave', label: 'Wave', description: 'Use wave icon', iconName: 'water' },
+  { id: 'orbit', label: 'Orbit', description: 'Use orbit icon', iconName: 'all_inclusive' },
 ] as const;
 const iconNameMap: Record<string, string> = Object.fromEntries(
-  iconChoices.map((icon) => [icon.id, icon.iconName])
+  itemIconChoices.map((icon) => [icon.id, icon.iconName])
 );
 
 const expanded = ref(true);
@@ -285,6 +312,15 @@ const itemTitle = computed(() => String(
   props.node.item?.title || props.node.item?.session_id || props.node.item?.id || currentItemId.value || 'Untitled'
 ));
 const isSessionItem = computed(() => currentItemType.value === 'session');
+const sessionCategory = computed(() =>
+  mathCategoryFor(String(props.node.item?.icon || 'general'))
+);
+const availableIconChoices = computed<Array<{
+  id: string;
+  label: string;
+  description: string;
+  iconName?: string;
+}>>(() => isSessionItem.value ? [...MATH_CATEGORIES] : [...itemIconChoices]);
 const isActive = computed(() => props.currentItemId === currentItemId.value);
 const rowIndent = computed(() => ({ paddingLeft: `${props.depth * 18 + 4}px` }));
 const canEditIcon = computed(() =>
