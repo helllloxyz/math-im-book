@@ -358,6 +358,33 @@ describe('ExplorerTree', () => {
     expect(wrapper.emitted('primary-action')?.[0]).toEqual(['folder-1']);
   });
 
+  it('clears the selection from blank space and creates at the top level', async () => {
+    const wrapper = mount(ExplorerTree, {
+      props: {
+        tree,
+        currentItemId: 'linear-map',
+        primaryActionTitle: 'New inquiry',
+      },
+    });
+
+    expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).toContain('tree-item-active');
+    await wrapper.get('[data-explorer-background]').trigger('click');
+    expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).not.toContain('tree-item-active');
+    expect(wrapper.emitted('base-folder-change')?.at(-1)).toEqual([null]);
+
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-primary-action]').trigger('click');
+    expect(wrapper.emitted('primary-action')?.[0]).toEqual([null]);
+
+    await wrapper.get('[data-explorer-create-menu]').trigger('click');
+    await wrapper.get('[data-explorer-create-folder]').trigger('click');
+    const body = new DOMWrapper(document.body);
+    await body.get('[data-explorer-name-input]').setValue('Top-level folder');
+    await body.get('form[aria-labelledby="create-folder-title"]').trigger('submit');
+
+    expect(wrapper.emitted('create-folder')?.[0]).toEqual([null, 'Top-level folder']);
+  });
+
   it('does not render a move button on item rows', () => {
     const wrapper = mount(ExplorerTree, {
       props: {

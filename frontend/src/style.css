@@ -256,6 +256,7 @@ input:focus-visible {
 }
 
 .sidebar-section {
+  height: 100%;
   animation: sidebar-in 260ms ease both;
 }
 
@@ -548,6 +549,7 @@ input:focus-visible {
 
 .explorer-tree {
   display: flex;
+  height: 100%;
   flex-direction: column;
   gap: 6px;
   color: var(--color-on-surface-variant);
@@ -726,6 +728,11 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+
+.explorer-tree-background {
+  min-height: 24px;
+  flex: 1 0 24px;
 }
 
 .explorer-tree-row {

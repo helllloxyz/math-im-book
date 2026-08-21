@@ -106,6 +106,13 @@
       <button v-if="normalizedQuery" type="button" @click="query = ''">Clear search</button>
     </div>
 
+    <div
+      class="explorer-tree-background"
+      data-explorer-background
+      aria-hidden="true"
+      @click="selectRoot"
+    ></div>
+
     <Teleport to="body">
       <div
         v-if="dialog"
