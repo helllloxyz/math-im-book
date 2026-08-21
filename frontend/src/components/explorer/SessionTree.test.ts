@@ -81,7 +81,6 @@ describe('SessionTree', () => {
       },
     });
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(newSessionSpy).toHaveBeenCalledWith(null);
@@ -113,7 +112,6 @@ describe('SessionTree', () => {
     await wrapper.get('[data-explorer-item="chat-1"]').trigger('click');
     expect(selectSpy).toHaveBeenCalledWith('chat-1');
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(newSessionSpy).toHaveBeenCalledWith('folder-1');
@@ -227,7 +225,6 @@ describe('SessionTree', () => {
     });
 
     await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-create-folder]').trigger('click');
     const body = new DOMWrapper(document.body);
     await body.get('[data-explorer-name-input]').setValue('Course');

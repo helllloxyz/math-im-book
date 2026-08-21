@@ -300,6 +300,11 @@ class KnowledgeOrchestrator:
                 draft_requests=list(action.draft_requests),
                 provider_profile=provider_profile,
                 session_id=session_id,
+                knowledge_scope_id=(
+                    selected_branch_context.knowledge_scope_id
+                    if selected_branch_context is not None
+                    else None
+                ),
                 symbol_constraints=symbol_context.symbols,
                 symbol_conflicts=scope_symbol_context.conflicts,
                 run_inline=True,

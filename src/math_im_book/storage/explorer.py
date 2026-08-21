@@ -32,6 +32,10 @@ def _new_folder_id() -> str:
     return f"folder-{uuid4().hex[:12]}"
 
 
+def _new_scope_id() -> str:
+    return f"scope-{uuid4().hex[:12]}"
+
+
 def _folder_path(name_parts: list[str]) -> str:
     return "/" + "/".join(name_parts) if name_parts else "/"
 
@@ -46,6 +50,7 @@ class ExplorerFolder:
     updated_at: str
     sort_order: int = 1000
     path_cached: str = field(default="/")
+    scope_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +62,7 @@ class ExplorerFolder:
             "updated_at": self.updated_at,
             "sort_order": self.sort_order,
             "path_cached": self.path_cached,
+            "scope_id": self.scope_id,
         }
 
 
@@ -107,6 +113,7 @@ class ExplorerStore:
         name: str,
         parent_folder_id: str | None,
         sort_order: int = 1000,
+        scope_id: str | None = None,
     ) -> ExplorerFolder:
         scope = self._validate_scope(scope)
         name = self._validate_folder_name(name)
@@ -117,6 +124,8 @@ class ExplorerStore:
             raise KeyError(parent_folder_id)
         if parent is not None and parent["scope"] != scope:
             raise ExplorerInvalidMoveError("parent folder scope mismatch")
+        if parent is not None:
+            scope_id = parent.get("scope_id")
         self._raise_on_duplicate_sibling_name(
             folders,
             scope=scope,
@@ -134,11 +143,205 @@ class ExplorerStore:
             updated_at=now,
             sort_order=sort_order,
             path_cached="/",
+            scope_id=scope_id,
         )
         folders.append(self._folder_to_dict(folder))
         self._refresh_cached_paths(payload)
         self._save_payload(payload)
         return self._folder_from_dict(self._get_folder(payload["folders"], folder.folder_id))
+
+    def create_scope_root(
+        self,
+        *,
+        name: str,
+        primary_scope: str,
+        sort_order: int = 1000,
+    ) -> tuple[ExplorerFolder, ExplorerFolder]:
+        """Create the conversation and Library roots for one user scope."""
+        primary_scope = self._validate_scope(primary_scope)
+        name = self._validate_folder_name(name)
+        paired_scope = "knowledge" if primary_scope == "sessions" else "sessions"
+        payload = self.load_payload()
+        folders = payload["folders"]
+        self._raise_on_duplicate_sibling_name(
+            folders,
+            scope=primary_scope,
+            name=name,
+            parent_folder_id=None,
+        )
+        self._raise_on_duplicate_sibling_name(
+            folders,
+            scope=paired_scope,
+            name=name,
+            parent_folder_id=None,
+        )
+
+        now = _utcnow()
+        scope_id = _new_scope_id()
+        created: dict[str, str] = {}
+        for scope in (primary_scope, paired_scope):
+            folder = ExplorerFolder(
+                folder_id=_new_folder_id(),
+                scope=scope,
+                name=name,
+                parent_folder_id=None,
+                created_at=now,
+                updated_at=now,
+                sort_order=sort_order,
+                path_cached="/",
+                scope_id=scope_id,
+            )
+            folders.append(self._folder_to_dict(folder))
+            created[scope] = folder.folder_id
+        self._refresh_cached_paths(payload)
+        self._save_payload(payload)
+        primary = self._folder_from_dict(
+            self._get_folder(payload["folders"], created[primary_scope])
+        )
+        paired = self._folder_from_dict(
+            self._get_folder(payload["folders"], created[paired_scope])
+        )
+        return primary, paired
+
+    def ensure_scope_root_pair(self, folder_id: str) -> tuple[ExplorerFolder, ExplorerFolder]:
+        """Return a folder's scope root and its paired root, migrating legacy roots."""
+        payload = self.load_payload()
+        folders = payload["folders"]
+        folder = self._get_folder(folders, folder_id)
+        if folder is None:
+            raise KeyError(folder_id)
+        root = self._root_folder_dict(folders, folder)
+        scope_id = root.get("scope_id") or _new_scope_id()
+        changed = root.get("scope_id") != scope_id
+        root["scope_id"] = scope_id
+
+        paired_scope = "knowledge" if root["scope"] == "sessions" else "sessions"
+        paired = next(
+            (
+                candidate
+                for candidate in folders
+                if candidate["scope"] == paired_scope
+                and candidate["parent_folder_id"] is None
+                and candidate.get("scope_id") == scope_id
+            ),
+            None,
+        )
+        if paired is None:
+            paired = next(
+                (
+                    candidate
+                    for candidate in folders
+                    if candidate["scope"] == paired_scope
+                    and candidate["parent_folder_id"] is None
+                    and candidate["name"] == root["name"]
+                    and not candidate.get("scope_id")
+                ),
+                None,
+            )
+        if paired is None:
+            self._raise_on_duplicate_sibling_name(
+                folders,
+                scope=paired_scope,
+                name=root["name"],
+                parent_folder_id=None,
+            )
+            now = _utcnow()
+            paired_folder = ExplorerFolder(
+                folder_id=_new_folder_id(),
+                scope=paired_scope,
+                name=root["name"],
+                parent_folder_id=None,
+                created_at=now,
+                updated_at=now,
+                sort_order=root.get("sort_order", 1000),
+                path_cached="/",
+                scope_id=scope_id,
+            )
+            paired = self._folder_to_dict(paired_folder)
+            folders.append(paired)
+            changed = True
+        elif paired.get("scope_id") != scope_id:
+            paired["scope_id"] = scope_id
+            changed = True
+
+        paired_root_ids = {root["folder_id"], paired["folder_id"]}
+        for candidate in folders:
+            candidate_root = self._root_folder_dict(folders, candidate)
+            if candidate_root["folder_id"] not in paired_root_ids:
+                continue
+            if candidate.get("scope_id") != scope_id:
+                candidate["scope_id"] = scope_id
+                changed = True
+
+        if changed:
+            self._refresh_cached_paths(payload)
+            self._save_payload(payload)
+        return self._folder_from_dict(root), self._folder_from_dict(paired)
+
+    def paired_scope_root(self, folder_id: str, *, target_scope: str) -> ExplorerFolder:
+        target_scope = self._validate_scope(target_scope)
+        first, second = self.ensure_scope_root_pair(folder_id)
+        return first if first.scope == target_scope else second
+
+    def root_folder(self, folder_id: str) -> ExplorerFolder:
+        payload = self.load_payload()
+        folder = self._get_folder(payload["folders"], folder_id)
+        if folder is None:
+            raise KeyError(folder_id)
+        return self._folder_from_dict(
+            self._root_folder_dict(payload["folders"], folder)
+        )
+
+    def rename_scope_root(self, folder_id: str, name: str) -> ExplorerFolder:
+        name = self._validate_folder_name(name)
+        root, paired = self.ensure_scope_root_pair(folder_id)
+        if root.folder_id != folder_id:
+            return self.rename_folder(folder_id, name)
+        payload = self.load_payload()
+        folders = payload["folders"]
+        for candidate in (root, paired):
+            self._raise_on_duplicate_sibling_name(
+                folders,
+                scope=candidate.scope,
+                name=name,
+                parent_folder_id=None,
+                exclude_folder_id=candidate.folder_id,
+            )
+        now = _utcnow()
+        for candidate_id in (root.folder_id, paired.folder_id):
+            candidate = self._get_folder(folders, candidate_id)
+            if candidate is not None:
+                candidate["name"] = name
+                candidate["updated_at"] = now
+        self._refresh_cached_paths(payload)
+        self._save_payload(payload)
+        renamed = self._get_folder(payload["folders"], folder_id)
+        return self._folder_from_dict(renamed)
+
+    def delete_scope_root(self, folder_id: str) -> None:
+        root, paired = self.ensure_scope_root_pair(folder_id)
+        if root.folder_id != folder_id:
+            self.delete_folder(folder_id)
+            return
+        payload = self.load_payload()
+        target_ids = {root.folder_id, paired.folder_id}
+        if any(
+            folder["parent_folder_id"] in target_ids
+            for folder in payload["folders"]
+        ):
+            raise ExplorerInvalidMoveError("folder contains child folders")
+        if any(
+            location["folder_id"] in target_ids
+            for location in payload["locations"]
+        ):
+            raise ExplorerInvalidMoveError("folder contains item locations")
+        payload["folders"] = [
+            folder
+            for folder in payload["folders"]
+            if folder["folder_id"] not in target_ids
+        ]
+        self._refresh_cached_paths(payload)
+        self._save_payload(payload)
 
     def rename_folder(self, folder_id: str, name: str) -> ExplorerFolder:
         name = self._validate_folder_name(name)
@@ -469,6 +672,23 @@ class ExplorerStore:
                 return folder
         return None
 
+    def _root_folder_dict(
+        self,
+        folders: list[dict[str, Any]],
+        folder: dict[str, Any],
+    ) -> dict[str, Any]:
+        current = folder
+        visited = {current["folder_id"]}
+        while current["parent_folder_id"] is not None:
+            parent = self._get_folder(folders, current["parent_folder_id"])
+            if parent is None:
+                raise ExplorerInvalidMoveError("folder references missing parent")
+            if parent["folder_id"] in visited:
+                raise ExplorerInvalidMoveError("folder hierarchy contains a cycle")
+            visited.add(parent["folder_id"])
+            current = parent
+        return current
+
     def _raise_on_duplicate_sibling_name(
         self,
         folders: list[dict[str, Any]],
@@ -548,6 +768,7 @@ class ExplorerStore:
             updated_at=folder["updated_at"],
             sort_order=folder.get("sort_order", 1000),
             path_cached=folder.get("path_cached", "/"),
+            scope_id=folder.get("scope_id"),
         )
 
     def _location_to_dict(self, location: ExplorerItemLocation) -> dict[str, Any]:

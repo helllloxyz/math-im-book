@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
@@ -56,6 +56,31 @@ describe('ReaderPanel', () => {
     expect(wrapper.html()).toContain('<ul');
     expect(wrapper.html()).toContain('<pre><code');
     expect(wrapper.find('.markdown-content').exists()).toBe(true);
+  });
+
+  it('renders delimited LaTeX in the knowledge summary', async () => {
+    vi.useFakeTimers();
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    store.currentNode = buildNode({
+      summary: '切空间记作 $T_pM$。',
+    }) as any;
+
+    const wrapper = mount(ReaderPanel, {
+      global: {
+        plugins: [pinia],
+        stubs: { NodeReferences: true },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(300);
+
+    const annotation = wrapper.element.querySelector(
+      '[data-knowledge-summary] annotation[encoding="application/x-tex"]'
+    );
+    expect(annotation?.textContent).toBe('T_pM');
+    vi.useRealTimers();
   });
 
   it('marks the reader detail as a knowledge-node selection source', () => {

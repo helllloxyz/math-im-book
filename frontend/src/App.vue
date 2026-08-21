@@ -231,13 +231,30 @@ const scrollToBottom = async () => {
   }
 }
 
+const scrollToTop = async () => {
+  await nextTick()
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTop = 0
+  }
+}
+
 watch(
   () => {
     const messages = currentSession.value?.messages
-    if (!messages?.length) return null
-    return messages[messages.length - 1]?.content
+    return [
+      currentSession.value?.session_id || null,
+      messages?.length ? messages[messages.length - 1]?.content : null,
+    ] as const
   },
-  scrollToBottom
+  ([sessionId, lastMessageContent], [previousSessionId, previousLastMessageContent]) => {
+    if (sessionId !== previousSessionId) {
+      void scrollToTop()
+      return
+    }
+    if (lastMessageContent !== previousLastMessageContent) {
+      void scrollToBottom()
+    }
+  }
 )
 
 const handleGlobalShortcut = (event: KeyboardEvent) => {

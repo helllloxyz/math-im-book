@@ -189,8 +189,12 @@ const prepareFollowUp = () => {
             {{ node.title }}
           </h1>
 
-          <div v-if="node.detail && node.summary" class="border-l-2 border-accent/50 pl-5 font-serif text-lg leading-relaxed text-on-surface-variant italic">
-            {{ node.summary }}
+          <div
+            v-if="node.detail && node.summary"
+            class="border-l-2 border-accent/50 pl-5 font-serif text-lg leading-relaxed text-on-surface-variant italic"
+            data-knowledge-summary
+          >
+            <MarkdownContent :content="node.summary" />
           </div>
           <p class="font-sans text-[9px] uppercase tracking-widest text-on-surface-variant/55">
             Revision {{ node.revision }}

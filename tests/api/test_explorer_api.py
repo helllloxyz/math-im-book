@@ -48,6 +48,7 @@ def test_create_folder_and_move_session(tmp_path) -> None:
         json={"folder_id": folder_id, "sort_order": 1000},
     )
     tree_response = client.get("/api/explorer/sessions")
+    library_root = client.get("/api/explorer/knowledge").json()["tree"][0]["folder"]
 
     assert folder_response.status_code == 200
     assert move_response.status_code == 200
@@ -55,6 +56,9 @@ def test_create_folder_and_move_session(tmp_path) -> None:
     folder = tree_response.json()["tree"][0]
     assert folder["kind"] == "folder"
     assert folder["children"][0]["item"]["session_id"] == "chat-1"
+    assert session_store.load_record("chat-1").branch_context.knowledge_scope_id == (
+        library_root["folder_id"]
+    )
 
 
 def test_create_folder_with_missing_parent_returns_404(tmp_path) -> None:
@@ -109,6 +113,27 @@ def test_cross_scope_move_returns_400(tmp_path) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Target folder is not in the item scope"
+
+
+def test_creating_root_folder_also_creates_paired_library_scope(tmp_path: Path) -> None:
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    client = TestClient(create_app(explorer_store=explorer_store))
+
+    response = client.post(
+        "/api/explorer/folders",
+        json={"scope": "sessions", "name": "Analysis", "parent_folder_id": None},
+    )
+    conversations_root = response.json()["folder"]
+    library_roots = [
+        node
+        for node in client.get("/api/explorer/knowledge").json()["tree"]
+        if node["kind"] == "folder" and node["folder"]["name"] == "Analysis"
+    ]
+
+    assert response.status_code == 200
+    assert conversations_root["scope_id"]
+    assert len(library_roots) == 1
+    assert library_roots[0]["folder"]["scope_id"] == conversations_root["scope_id"]
 
 
 def test_move_missing_item_does_not_create_stale_explorer_metadata(tmp_path: Path) -> None:
@@ -282,3 +307,43 @@ def test_organize_knowledge_groups_unlocked_root_nodes_and_preserves_user_placem
     assert manual_location is not None
     assert manual_location.folder_id is None
     assert manual_location.user_locked is True
+
+
+def test_organize_knowledge_keeps_categories_inside_the_library_scope(
+    tmp_path: Path,
+) -> None:
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    repository.save_node(
+        KnowledgeNode(
+            id="metric-space",
+            title="Metric Space",
+            type="definition",
+            summary="A set equipped with a metric.",
+            detail="Detail",
+            parent_id=None,
+            source="chat:1",
+            status="ready",
+        )
+    )
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    _conversations, library = explorer_store.create_scope_root(
+        name="Analysis",
+        primary_scope="sessions",
+    )
+    explorer_store.ensure_item_location(
+        item_type="knowledge_node",
+        item_id="metric-space",
+        folder_id=library.folder_id,
+        location_source="system",
+    )
+    client = TestClient(
+        create_app(repository=repository, explorer_store=explorer_store)
+    )
+
+    response = client.post("/api/explorer/knowledge/organize")
+
+    assert response.status_code == 200
+    assert explorer_store.find_location(
+        "knowledge_node",
+        "metric-space",
+    ).path_cached == "/Analysis/Definitions/metric-space"

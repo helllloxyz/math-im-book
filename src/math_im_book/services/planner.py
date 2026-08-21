@@ -408,7 +408,8 @@ class QuestionPlanner:
             "Select at most 6 node ids and only when their title and summary materially support the answer. "
             "The full node bodies are intentionally unavailable; never imply that you inspected details not supplied here. "
             "When nodes are selected, use profile_context_summary to briefly explain what context they contribute. "
-            "user_visible_summary and candidate draft reasons must use the same language as the user's question. "
+            "user_visible_summary and every candidate draft title and reason must use the same language "
+            "as the user's question. "
             "For backward compatibility, action_type and draft_requests are also accepted.",
         ]
         if profile_block:

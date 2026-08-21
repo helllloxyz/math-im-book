@@ -611,26 +611,20 @@ input:focus-visible {
   background: var(--color-primary-fixed);
 }
 
-.explorer-create-trigger {
-  border: 1px solid var(--color-primary);
-  color: var(--color-on-primary);
-  background: var(--color-primary);
-  box-shadow: 0 3px 8px rgb(var(--color-primary-rgb) / 0.2);
+.explorer-create-action {
+  border: 1px solid color-mix(in srgb, var(--color-outline-variant) 62%, transparent);
+  color: color-mix(in srgb, var(--color-on-surface-variant) 78%, transparent);
+  background: rgb(var(--color-surface-lowest-rgb) / 0.42);
 }
 
-.explorer-create-trigger:hover {
-  border-color: var(--color-primary-hover);
-  color: var(--color-on-primary);
-  background: var(--color-primary-hover);
+.explorer-create-action:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-outline-variant));
+  color: var(--color-primary);
+  background: rgb(var(--color-primary-rgb) / 0.07);
 }
 
-.explorer-create-trigger .material-symbols-outlined {
+.explorer-create-action .material-symbols-outlined {
   font-size: 17px;
-}
-
-.explorer-create-menu {
-  top: 32px;
-  right: 0;
 }
 
 .explorer-search {

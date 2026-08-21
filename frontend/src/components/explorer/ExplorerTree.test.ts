@@ -123,7 +123,6 @@ describe('ExplorerTree', () => {
     expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).toContain('tree-item-active');
     expect(wrapper.get('[data-explorer-item="linear-map"]').attributes('aria-selected')).toBe('true');
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(wrapper.emitted('primary-action')?.[0]).toEqual(['folder-1']);
@@ -139,7 +138,6 @@ describe('ExplorerTree', () => {
 
     await wrapper.get('[data-explorer-item="linear-map"]').trigger('click');
     await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-create-folder]').trigger('click');
     const body = new DOMWrapper(document.body);
     await body.get('[data-explorer-name-input]').setValue('Vector spaces');
@@ -157,7 +155,6 @@ describe('ExplorerTree', () => {
       },
     });
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-create-folder]').trigger('click');
     const body = new DOMWrapper(document.body);
     await body.get('[data-explorer-name-input]').setValue('Inbox');
@@ -336,7 +333,6 @@ describe('ExplorerTree', () => {
       },
     });
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(wrapper.emitted('primary-action')?.[0]).toEqual([null]);
@@ -352,7 +348,6 @@ describe('ExplorerTree', () => {
     });
 
     await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(wrapper.emitted('primary-action')?.[0]).toEqual(['folder-1']);
@@ -372,11 +367,9 @@ describe('ExplorerTree', () => {
     expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).not.toContain('tree-item-active');
     expect(wrapper.emitted('base-folder-change')?.at(-1)).toEqual([null]);
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
     expect(wrapper.emitted('primary-action')?.[0]).toEqual([null]);
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-create-folder]').trigger('click');
     const body = new DOMWrapper(document.body);
     await body.get('[data-explorer-name-input]').setValue('Top-level folder');

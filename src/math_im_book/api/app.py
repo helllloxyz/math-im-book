@@ -501,10 +501,39 @@ def create_app(
             if existing_record is not None
             else SessionBranchContext()
         )
+        conversation_folder_id = payload.conversation_folder_id
+        folder_scope_id: str | None = None
+        if conversation_folder_id is not None:
+            if existing_record is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="conversation_folder_id is only valid for a new conversation",
+                )
+            try:
+                conversation_folder = explorer.get_folder(conversation_folder_id)
+                if conversation_folder.scope != "sessions":
+                    raise ExplorerInvalidMoveError(
+                        "Target folder is not in the conversation scope"
+                    )
+                folder_scope_id = explorer.paired_scope_root(
+                    conversation_folder_id,
+                    target_scope="knowledge",
+                ).folder_id
+            except KeyError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Unknown conversation folder",
+                ) from exc
+            except (ExplorerInvalidMoveError, ExplorerError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         requested_scope_id = (
-            payload.knowledge_scope_id
-            if "knowledge_scope_id" in payload.model_fields_set
-            else base_branch_context.knowledge_scope_id
+            folder_scope_id
+            if folder_scope_id is not None
+            else (
+                payload.knowledge_scope_id
+                if "knowledge_scope_id" in payload.model_fields_set
+                else base_branch_context.knowledge_scope_id
+            )
         )
         scope_label = "全部知识"
         if requested_scope_id is not None:
@@ -514,6 +543,11 @@ def create_app(
                 raise HTTPException(status_code=400, detail="Unknown knowledge scope") from exc
             if scope_folder.scope != "knowledge":
                 raise HTTPException(status_code=400, detail="Invalid knowledge scope")
+            if scope_folder.parent_folder_id is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Knowledge scope must be a root folder",
+                )
             scope_label = scope_folder.path_cached.strip("/") or scope_folder.name
         scope_changed = requested_scope_id != base_branch_context.knowledge_scope_id
         requested_branch_context = replace(
@@ -559,6 +593,10 @@ def create_app(
                 if existing_record is not None
                 else SessionBranchContext()
             )
+        )
+        branch_context = replace(
+            branch_context,
+            knowledge_scope_id=requested_scope_id,
         )
         generated_title = None
         generated_category = None
@@ -621,6 +659,14 @@ def create_app(
             strategy_agent_id=strategy_agent_id,
             knowledge_approval_policy=knowledge_approval_policy,
         )
+        if conversation_folder_id is not None:
+            explorer.move_item(
+                item_type="session",
+                item_id=session_id,
+                folder_id=conversation_folder_id,
+                sort_order=1000,
+                location_source="user",
+            )
         sessions.save_working_turn(session_id, None)
         if result.answer.knowledge_job_id is not None:
             resolved_knowledge_job_repository.attach_source_message(
@@ -1011,6 +1057,7 @@ def create_app(
         ]
         selected_node_ids: list[str] = []
         session_id: str | None = None
+        knowledge_scope_id: str | None = None
         source_message_id: str | None = None
         symbol_constraints: dict[str, str] | None = None
         provider_profile = None
@@ -1029,6 +1076,12 @@ def create_app(
                     status_code=404, detail="Knowledge node not found"
                 ) from exc
             selected_node_ids = [node.id]
+            node_location = explorer.find_location("knowledge_node", node.id)
+            if node_location is not None and node_location.folder_id is not None:
+                knowledge_scope_id = explorer.paired_scope_root(
+                    node_location.folder_id,
+                    target_scope="knowledge",
+                ).folder_id
             selection = _default_model_selection_to_model_selection(
                 payload.conversation_model
             )
@@ -1066,6 +1119,7 @@ def create_app(
                     status_code=404, detail="Session message not found"
                 )
             session_id = record.session_id
+            knowledge_scope_id = record.branch_context.knowledge_scope_id
             source_message_id = message.message_id
             selected_node_ids = list(message.assistant_context.referenced_node_ids)
             symbol_constraints = dict(record.branch_context.active_symbols)
@@ -1090,6 +1144,7 @@ def create_app(
 
         job = resolved_knowledge_job_repository.submit_compile_job(
             session_id=session_id,
+            knowledge_scope_id=knowledge_scope_id,
             source_message_id=source_message_id,
             question=selected_text,
             selection_source_text=selected_text,
@@ -1193,6 +1248,7 @@ def create_app(
         )
         job = resolved_knowledge_job_repository.submit_compile_job(
             session_id=session_id,
+            knowledge_scope_id=record.branch_context.knowledge_scope_id,
             source_message_id=message_id,
             question=source_question,
             anchors=anchors,
@@ -1718,32 +1774,41 @@ def create_app(
         }
         folders_created = 0
         organized_count = 0
-        folders_by_name: dict[str, ExplorerFolder] = {}
+        folders_by_name: dict[tuple[str | None, str], ExplorerFolder] = {}
         for item in _knowledge_explorer_items():
             item_id = str(item["item_id"])
             location = explorer.find_location("knowledge_node", item_id)
-            if location is not None and (
-                location.folder_id is not None or location.user_locked
-            ):
-                continue
+            parent_folder_id: str | None = None
+            if location is not None:
+                if location.user_locked:
+                    continue
+                if location.folder_id is not None:
+                    root_folder = explorer.root_folder(location.folder_id)
+                    if (
+                        not root_folder.scope_id
+                        or location.folder_id != root_folder.folder_id
+                    ):
+                        continue
+                    parent_folder_id = root_folder.folder_id
             node_type = str(item.get("type") or "").strip().lower()
             folder_name = folder_names.get(node_type, "Concepts & Notes")
-            folder = folders_by_name.get(folder_name)
+            folder_key = (parent_folder_id, folder_name)
+            folder = folders_by_name.get(folder_key)
             if folder is None:
                 folder = explorer.find_folder(
                     scope="knowledge",
                     name=folder_name,
-                    parent_folder_id=None,
+                    parent_folder_id=parent_folder_id,
                 )
                 if folder is None:
                     folder = explorer.create_folder(
                         scope="knowledge",
                         name=folder_name,
-                        parent_folder_id=None,
+                        parent_folder_id=parent_folder_id,
                         sort_order=folder_sort_orders[folder_name],
                     )
                     folders_created += 1
-                folders_by_name[folder_name] = folder
+                folders_by_name[folder_key] = folder
             explorer.move_item(
                 item_type="knowledge_node",
                 item_id=item_id,
@@ -1763,11 +1828,17 @@ def create_app(
         payload: ExplorerFolderCreateSchema,
     ) -> ExplorerFolderResponseSchema:
         try:
-            folder = explorer.create_folder(
-                scope=payload.scope,
-                name=payload.name,
-                parent_folder_id=payload.parent_folder_id,
-            )
+            if payload.parent_folder_id is None:
+                folder, _paired = explorer.create_scope_root(
+                    primary_scope=payload.scope,
+                    name=payload.name,
+                )
+            else:
+                folder = explorer.create_folder(
+                    scope=payload.scope,
+                    name=payload.name,
+                    parent_folder_id=payload.parent_folder_id,
+                )
         except ExplorerFolderConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except KeyError as exc:
@@ -1787,7 +1858,12 @@ def create_app(
         payload: ExplorerFolderUpdateSchema,
     ) -> ExplorerFolderResponseSchema:
         try:
-            folder = explorer.rename_folder(folder_id, payload.name)
+            current = explorer.get_folder(folder_id)
+            folder = (
+                explorer.rename_scope_root(folder_id, payload.name)
+                if current.parent_folder_id is None
+                else explorer.rename_folder(folder_id, payload.name)
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Folder not found") from exc
         except ExplorerFolderConflictError as exc:
@@ -1801,7 +1877,11 @@ def create_app(
     @app.delete("/api/explorer/folders/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_explorer_folder(folder_id: str) -> Response:
         try:
-            explorer.delete_folder(folder_id)
+            current = explorer.get_folder(folder_id)
+            if current.parent_folder_id is None:
+                explorer.delete_scope_root(folder_id)
+            else:
+                explorer.delete_folder(folder_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Folder not found") from exc
         except ExplorerInvalidMoveError as exc:
@@ -1819,6 +1899,12 @@ def create_app(
     ) -> ExplorerItemLocationResponseSchema:
         _ensure_explorer_item_exists(item_type, item_id)
         try:
+            knowledge_scope_id: str | None = None
+            if item_type == "session" and payload.folder_id is not None:
+                knowledge_scope_id = explorer.paired_scope_root(
+                    payload.folder_id,
+                    target_scope="knowledge",
+                ).folder_id
             location = explorer.move_item(
                 item_type=item_type,
                 item_id=item_id,
@@ -1826,6 +1912,24 @@ def create_app(
                 sort_order=payload.sort_order,
                 location_source="user",
             )
+            if item_type == "session":
+                record = sessions.load_record(item_id)
+                if record is not None:
+                    sessions.update_record(
+                        item_id,
+                        branch_context=replace(
+                            record.branch_context,
+                            knowledge_scope_id=knowledge_scope_id,
+                            active_node_ids=[],
+                            summary_node_ids=[],
+                            active_symbols={},
+                        ),
+                    )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Target folder does not exist",
+            ) from exc
         except (ExplorerInvalidMoveError, ExplorerError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return ExplorerItemLocationResponseSchema.model_validate(

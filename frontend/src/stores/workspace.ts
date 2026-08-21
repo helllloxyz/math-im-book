@@ -133,28 +133,67 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   const knowledgeScopeOptions = computed(() => {
     const options: Array<{ id: string; label: string; nodeCount: number }> = [];
-    const visit = (nodes: ExplorerTreeNode[], parents: string[]) => {
-      for (const node of nodes) {
-        if (node.kind !== 'folder' || !node.folder) continue;
-        const path = [...parents, node.folder.name];
-        const countItems = (children: ExplorerTreeNode[]): number =>
-          children.reduce(
-            (total, child) => total + (
-              child.kind === 'item' ? 1 : countItems(child.children || [])
-            ),
-            0
-          );
-        options.push({
-          id: node.folder.folder_id,
-          label: path.join(' / '),
-          nodeCount: countItems(node.children || []),
-        });
-        visit(node.children || [], path);
-      }
-    };
-    visit(knowledgeExplorerTree.value, []);
+    const countItems = (children: ExplorerTreeNode[]): number =>
+      children.reduce(
+        (total, child) => total + (
+          child.kind === 'item' ? 1 : countItems(child.children || [])
+        ),
+        0
+      );
+    for (const node of knowledgeExplorerTree.value) {
+      if (node.kind !== 'folder' || !node.folder) continue;
+      options.push({
+        id: node.folder.folder_id,
+        label: node.folder.name,
+        nodeCount: countItems(node.children || []),
+      });
+    }
     return options;
   });
+
+  function folderScopeId(
+    nodes: ExplorerTreeNode[],
+    folderId: string
+  ): string | null {
+    for (const node of nodes) {
+      if (node.kind !== 'folder' || !node.folder) continue;
+      if (node.folder.folder_id === folderId) {
+        return node.folder.scope_id || null;
+      }
+      const nested = folderScopeId(node.children || [], folderId);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function pairedKnowledgeRootId(conversationFolderId: string | null): string | null {
+    if (!conversationFolderId) return null;
+    const scopeId = folderScopeId(sessionExplorerTree.value, conversationFolderId);
+    if (!scopeId) return null;
+    const pairedRoot = knowledgeExplorerTree.value.find(
+      (node) =>
+        node.kind === 'folder' &&
+        node.folder?.parent_folder_id == null &&
+        node.folder?.scope_id === scopeId
+    );
+    return pairedRoot?.folder?.folder_id || null;
+  }
+
+  function containingKnowledgeRootId(folderId: string | null): string | null {
+    if (!folderId) return null;
+    const containsFolder = (nodes: ExplorerTreeNode[]): boolean =>
+      nodes.some(
+        (node) =>
+          node.kind === 'folder' &&
+          (node.folder?.folder_id === folderId || containsFolder(node.children || []))
+      );
+    const root = knowledgeExplorerTree.value.find(
+      (node) =>
+        node.kind === 'folder' &&
+        (node.folder?.folder_id === folderId || containsFolder(node.children || []))
+    );
+    return root?.folder?.folder_id || null;
+  }
 
   function cancelKnowledgeJobPolling() {
     knowledgeJobPollToken += 1;
@@ -679,8 +718,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         name,
         parent_folder_id: parentFolderId,
       });
-      if (scope === 'sessions') await fetchSessionExplorer();
-      if (scope === 'knowledge') await fetchKnowledgeExplorer();
+      if (parentFolderId === null) {
+        await Promise.all([fetchSessionExplorer(), fetchKnowledgeExplorer()]);
+      } else if (scope === 'sessions') {
+        await fetchSessionExplorer();
+      } else {
+        await fetchKnowledgeExplorer();
+      }
     } finally {
       explorerBusy.value = false;
     }
@@ -690,8 +734,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     explorerBusy.value = true;
     try {
       const folder = await api.renameExplorerFolder(folderId, name);
-      if (folder.scope === 'sessions') await fetchSessionExplorer();
-      if (folder.scope === 'knowledge') await fetchKnowledgeExplorer();
+      if (folder.parent_folder_id == null && folder.scope_id) {
+        await Promise.all([fetchSessionExplorer(), fetchKnowledgeExplorer()]);
+      } else if (folder.scope === 'sessions') {
+        await fetchSessionExplorer();
+      } else {
+        await fetchKnowledgeExplorer();
+      }
     } finally {
       explorerBusy.value = false;
     }
@@ -700,9 +749,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function deleteExplorerFolder(scope: ExplorerScope, folderId: string) {
     explorerBusy.value = true;
     try {
+      const deletingScopeRoot = [sessionExplorerTree.value, knowledgeExplorerTree.value]
+        .flat()
+        .some(
+          (node) =>
+            node.kind === 'folder' &&
+            node.folder?.folder_id === folderId &&
+            node.folder.parent_folder_id == null &&
+            Boolean(node.folder.scope_id)
+        );
       await api.deleteExplorerFolder(folderId);
-      if (scope === 'sessions') await fetchSessionExplorer();
-      if (scope === 'knowledge') await fetchKnowledgeExplorer();
+      if (deletingScopeRoot) {
+        await Promise.all([fetchSessionExplorer(), fetchKnowledgeExplorer()]);
+      } else if (scope === 'sessions') {
+        await fetchSessionExplorer();
+      } else {
+        await fetchKnowledgeExplorer();
+      }
     } finally {
       explorerBusy.value = false;
     }
@@ -719,7 +782,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         folder_id: folderId,
         sort_order: 1000,
       });
-      if (itemType === 'session') await fetchSessionExplorer();
+      if (itemType === 'session') {
+        if (currentSession.value?.session_id === itemId) {
+          selectedKnowledgeScopeId.value = pairedKnowledgeRootId(folderId);
+        }
+        await fetchSessionExplorer();
+      }
       if (itemType === 'knowledge_node') await fetchKnowledgeExplorer();
     } finally {
       explorerBusy.value = false;
@@ -848,7 +916,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         onChunk: appendStreamingChunk,
         onProgress: applyAgentProgress,
       };
-      const response = await api.askStream(
+      const askArguments = [
         question,
         currentSession.value?.session_id,
         conversationModel,
@@ -856,8 +924,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         strategyAgentId,
         streamCallbacks,
         selectedKnowledgeScopeId.value,
-        selectedKnowledgeApprovalPolicy.value
-      );
+        selectedKnowledgeApprovalPolicy.value,
+      ] as const;
+      const response = targetFolderId
+        ? await api.askStream(...askArguments, targetFolderId)
+        : await api.askStream(...askArguments);
       const latestAssistant = latestAssistantMessage(response.session);
       const responseAnchors =
         response.answer.anchors !== undefined
@@ -890,18 +961,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         );
       }
       if (targetFolderId && response.session.session_id) {
-        try {
-          await api.moveExplorerItem('session', response.session.session_id, {
-            folder_id: targetFolderId,
-            sort_order: 1000,
-          });
-          newSessionFolderId.value = null;
-        } catch (error) {
-          console.error(`Failed to place new session in folder ${targetFolderId}:`, error);
-        }
+        newSessionFolderId.value = null;
       }
       // Refresh session list to show updated titles/summaries
       await fetchSessions();
+      if (targetFolderId) {
+        await fetchKnowledgeExplorer();
+      }
       void fetchAgentState(response.session.session_id);
     } catch (error) {
       currentSession.value = previousSession;
@@ -1183,8 +1249,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
       return undefined;
     };
-    const nodeScopeId = findFolderId(knowledgeExplorerTree.value);
-    if (nodeScopeId !== undefined) selectedKnowledgeScopeId.value = nodeScopeId;
+    const nodeFolderId = findFolderId(knowledgeExplorerTree.value);
+    if (nodeFolderId !== undefined) {
+      selectedKnowledgeScopeId.value = containingKnowledgeRootId(nodeFolderId);
+    }
     draftQuestion.value = `围绕知识点「${title}」继续追问：`;
     activeTab.value = 'chat';
   }
@@ -1249,12 +1317,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     agentRunSteps.value = [];
     selectedProviderProfile.value = nextProfile;
     selectedStrategyAgentId.value = defaultStrategyAgentId();
-    selectedKnowledgeScopeId.value = null;
-    selectedKnowledgeApprovalPolicy.value = defaultKnowledgeApprovalPolicy();
-    selectedAnswerStyleId.value = null;
-    newSessionFolderId.value = folderId === undefined
+    const targetFolderId = folderId === undefined
       ? conversationBaseFolderId.value
       : folderId;
+    selectedKnowledgeScopeId.value = pairedKnowledgeRootId(targetFolderId);
+    selectedKnowledgeApprovalPolicy.value = defaultKnowledgeApprovalPolicy();
+    selectedAnswerStyleId.value = null;
+    newSessionFolderId.value = targetFolderId;
   }
 
   watch(

@@ -61,9 +61,9 @@ def test_planner_parses_orchestration_plan_contract() -> None:
                 '"detected_scope_ids":["linear-algebra"],'
                 '"profile_layers_used":["global_user","scope_memory:linear-algebra"],'
                 '"profile_context_summary":"识别为线性代数范围；用户倾向先看整体再整理节点。",'
-                '"candidate_drafts":[{"title":"Vector Space",'
+                '"candidate_drafts":[{"title":"向量空间",'
                 '"draft_type":"definition",'
-                '"reason":"Foundational reusable concept."}],'
+                '"reason":"可复用的基础概念。"}],'
                 '"user_visible_summary":"先给概览，并建议知识点。"}'
             ),
             provider_name="gemini",
@@ -86,7 +86,10 @@ def test_planner_parses_orchestration_plan_contract() -> None:
     assert action.orchestration_plan.intent == "broad_overview"
     assert action.orchestration_plan.detected_scope_ids == ["linear-algebra"]
     assert "scope_memory:linear-algebra" in action.orchestration_plan.profile_layers_used
-    assert action.orchestration_plan.candidate_drafts[0].title == "Vector Space"
+    assert action.orchestration_plan.candidate_drafts[0].title == "向量空间"
+    assert "every candidate draft title and reason must use the same language" in (
+        gateway.requests[0].system_instruction
+    )
 
 
 def test_planner_returns_reuse_action_from_provider() -> None:

@@ -250,6 +250,59 @@ def test_compile_job_uses_draft_type_and_prompt_metadata(tmp_path: Path) -> None
     assert completed.anchors[0].status == "ready"
 
 
+def test_compile_job_requires_user_language_and_delimited_latex(tmp_path: Path) -> None:
+    class RecordingGateway:
+        def __init__(self) -> None:
+            self.request = None
+
+        def generate(self, profile: ProviderProfile, request: object) -> ProviderResult:
+            self.request = request
+            return ProviderResult(
+                output_text=(
+                    '{"summary":"余切空间是切空间的对偶空间。",'
+                    '"detail":"余切空间记作 $T_p^*M$。"}'
+                ),
+                provider_name="test",
+            )
+
+    gateway = RecordingGateway()
+    jobs = InMemoryKnowledgeJobRepository(
+        MarkdownKnowledgeRepository(tmp_path),
+        provider_gateway=gateway,
+        auto_start=False,
+    )
+    job = jobs.submit_compile_job(
+        question="什么是余切空间？",
+        anchors=[],
+        selected_node_ids=[],
+        draft_requests=[
+            PendingDraftRequest(
+                title="余切空间",
+                draft_type="definition",
+                reason="整理成可复用定义。",
+            )
+        ],
+        provider_profile=ProviderProfile(
+            provider_type="openai_compatible",
+            model="test-model",
+            credential_id="test",
+        ),
+    )
+
+    completed = jobs.run_job(job.job_id)
+
+    assert completed.status == "completed"
+    assert gateway.request is not None
+    assert "primary language of the user's Question and Selected text" in (
+        gateway.request.system_instruction
+    )
+    assert "when that language is Chinese" in gateway.request.system_instruction
+    assert "use $...$ inline and $$...$$ for display math" in (
+        gateway.request.system_instruction
+    )
+    assert "$T_pM$ rather than T_pM" in gateway.request.system_instruction
+
+
 def test_compile_job_without_draft_requests_defaults_to_summary_type(
     tmp_path: Path,
 ) -> None:
@@ -658,3 +711,121 @@ def test_completed_knowledge_job_ensures_explorer_location(tmp_path: Path) -> No
     assert location is not None
     assert location.location_source == "system"
     assert location.user_locked is False
+
+
+def test_completed_knowledge_job_is_placed_in_selected_library_scope(
+    tmp_path: Path,
+) -> None:
+    class Gateway:
+        def generate(self, profile: ProviderProfile, request: object) -> ProviderResult:
+            return ProviderResult(
+                output_text='{"summary":"Scoped summary.","detail":"Scoped detail."}',
+                provider_name="test",
+            )
+
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    _conversations, library = explorer_store.create_scope_root(
+        name="Topology",
+        primary_scope="sessions",
+    )
+    jobs = InMemoryKnowledgeJobRepository(
+        repository,
+        provider_gateway=Gateway(),
+        auto_start=False,
+        explorer_store=explorer_store,
+    )
+    job = jobs.submit_compile_job(
+        session_id="chat-1",
+        knowledge_scope_id=library.folder_id,
+        question="What is a topology?",
+        anchors=[],
+        selected_node_ids=[],
+        draft_requests=[
+            PendingDraftRequest(
+                title="Topology",
+                draft_type="definition",
+                reason="Reusable definition.",
+            )
+        ],
+        provider_profile=ProviderProfile(
+            provider_type="openai_compatible",
+            model="test-model",
+            credential_id="test",
+        ),
+    )
+
+    completed = jobs.run_job(job.job_id)
+    location = explorer_store.find_location(
+        "knowledge_node",
+        completed.anchors[0].node_id or "",
+    )
+
+    assert location is not None
+    assert location.folder_id == library.folder_id
+
+
+def test_same_knowledge_title_is_isolated_between_library_scopes(
+    tmp_path: Path,
+) -> None:
+    class Gateway:
+        def generate(self, profile: ProviderProfile, request: object) -> ProviderResult:
+            return ProviderResult(
+                output_text='{"summary":"Scoped summary.","detail":"Scoped detail."}',
+                provider_name="test",
+            )
+
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    explorer_store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    _first_conversations, first_library = explorer_store.create_scope_root(
+        name="Course A",
+        primary_scope="sessions",
+    )
+    _second_conversations, second_library = explorer_store.create_scope_root(
+        name="Course B",
+        primary_scope="sessions",
+    )
+    jobs = InMemoryKnowledgeJobRepository(
+        repository,
+        provider_gateway=Gateway(),
+        auto_start=False,
+        explorer_store=explorer_store,
+    )
+    profile = ProviderProfile(
+        provider_type="openai_compatible",
+        model="test-model",
+        credential_id="test",
+    )
+
+    completed_jobs = []
+    for library in (first_library, second_library):
+        job = jobs.submit_compile_job(
+            session_id="chat-1",
+            knowledge_scope_id=library.folder_id,
+            question="What is a group?",
+            anchors=[],
+            selected_node_ids=[],
+            draft_requests=[
+                PendingDraftRequest(
+                    title="Group",
+                    draft_type="definition",
+                    reason="Reusable definition.",
+                )
+            ],
+            provider_profile=profile,
+        )
+        completed_jobs.append(jobs.run_job(job.job_id))
+
+    first_node_id = completed_jobs[0].anchors[0].node_id
+    second_node_id = completed_jobs[1].anchors[0].node_id
+    assert first_node_id == "group"
+    assert second_node_id is not None
+    assert second_node_id != first_node_id
+    assert explorer_store.find_location(
+        "knowledge_node",
+        first_node_id or "",
+    ).folder_id == first_library.folder_id
+    assert explorer_store.find_location(
+        "knowledge_node",
+        second_node_id,
+    ).folder_id == second_library.folder_id

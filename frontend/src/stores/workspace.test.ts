@@ -176,10 +176,42 @@ describe('workspace store provider configuration', () => {
     expect(store.knowledgeExplorerTree[0].item?.id).toBe('linear-map');
   });
 
+  it('offers only root Library folders as knowledge scopes', () => {
+    const store = useWorkspaceStore();
+    store.knowledgeExplorerTree = [
+      {
+        kind: 'folder',
+        folder: { folder_id: 'library-course', name: 'Course', parent_folder_id: null },
+        children: [
+          {
+            kind: 'folder',
+            folder: {
+              folder_id: 'library-definitions',
+              name: 'Definitions',
+              parent_folder_id: 'library-course',
+            },
+            children: [
+              {
+                kind: 'item',
+                item: { item_id: 'vector-space', title: 'Vector Space' },
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    ] as any;
+
+    expect(store.knowledgeScopeOptions).toEqual([
+      { id: 'library-course', label: 'Course', nodeCount: 1 },
+    ]);
+  });
+
   it('creates folders and moves items through explorer actions', async () => {
     vi.mocked(api.createExplorerFolder).mockResolvedValue({ folder_id: 'folder-1' } as any);
     vi.mocked(api.moveExplorerItem).mockResolvedValue({ item_id: 'chat-1' } as any);
     vi.mocked(api.getSessionExplorer).mockResolvedValue({ scope: 'sessions', tree: [] });
+    vi.mocked(api.getKnowledgeExplorer).mockResolvedValue({ scope: 'knowledge', tree: [] });
     const store = useWorkspaceStore();
 
     await store.createExplorerFolder('sessions', 'Course', null);
@@ -195,6 +227,7 @@ describe('workspace store provider configuration', () => {
       sort_order: 1000,
     });
     expect(api.getSessionExplorer).toHaveBeenCalledTimes(2);
+    expect(api.getKnowledgeExplorer).toHaveBeenCalledTimes(1);
   });
 
   it('renames and deletes folders while refreshing the matching scope', async () => {
@@ -833,19 +866,58 @@ describe('workspace store provider configuration', () => {
         messages: [],
       },
     } as any);
-    vi.mocked(api.moveExplorerItem).mockResolvedValue({ item_id: 'chat-in-course' } as any);
     vi.mocked(api.getSessions).mockResolvedValue([]);
     vi.mocked(api.getSessionExplorer).mockResolvedValue({ scope: 'sessions', tree: [] });
+    vi.mocked(api.getKnowledgeExplorer).mockResolvedValue({ scope: 'knowledge', tree: [] });
 
     const store = useWorkspaceStore();
+    store.sessionExplorerTree = [
+      {
+        kind: 'folder',
+        folder: {
+          folder_id: 'folder-course-root',
+          scope: 'sessions',
+          scope_id: 'scope-course',
+          name: 'Course',
+          parent_folder_id: null,
+        },
+        children: [
+          {
+            kind: 'folder',
+            folder: {
+              folder_id: 'folder-course',
+              scope: 'sessions',
+              scope_id: 'scope-course',
+              name: 'Week 1',
+              parent_folder_id: 'folder-course-root',
+            },
+            children: [],
+          },
+        ],
+      },
+    ] as any;
+    store.knowledgeExplorerTree = [
+      {
+        kind: 'folder',
+        folder: {
+          folder_id: 'library-course',
+          scope: 'knowledge',
+          scope_id: 'scope-course',
+          name: 'Course',
+          parent_folder_id: null,
+        },
+        children: [],
+      },
+    ] as any;
     store.newSession('folder-course');
 
+    expect(store.selectedKnowledgeScopeId).toBe('library-course');
     await store.ask('Start inside this course.');
 
-    expect(api.moveExplorerItem).toHaveBeenCalledWith('session', 'chat-in-course', {
-      folder_id: 'folder-course',
-      sort_order: 1000,
-    });
+    const askCall = vi.mocked(api.askStream).mock.calls[0];
+    expect(askCall?.[6]).toBe('library-course');
+    expect(askCall?.at(-1)).toBe('folder-course');
+    expect(api.moveExplorerItem).not.toHaveBeenCalled();
     expect(store.newSessionFolderId).toBeNull();
   });
 

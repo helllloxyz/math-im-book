@@ -22,38 +22,26 @@
       </button>
       <div class="explorer-tree-header-actions" @click.stop>
         <button
+          v-if="primaryActionTitle"
           type="button"
-          class="explorer-tree-header-action explorer-create-trigger"
-          data-explorer-create-menu
-          :title="`Add to ${baseFolderName || title || 'top level'}`"
-          :aria-label="`Create in ${baseFolderName || title || 'top level'}`"
-          aria-haspopup="menu"
-          :aria-expanded="createMenuOpen ? 'true' : 'false'"
-          @click="createMenuOpen = !createMenuOpen"
+          class="explorer-tree-header-action explorer-create-action"
+          data-explorer-primary-action
+          :title="`${primaryActionTitle} in ${baseFolderName || title || 'top level'}`"
+          :aria-label="`${primaryActionTitle} in ${baseFolderName || title || 'top level'}`"
+          @click="runPrimaryAction"
         >
-          <span class="material-symbols-outlined" aria-hidden="true">add</span>
+          <span class="material-symbols-outlined" aria-hidden="true">{{ primaryActionIcon || 'chat_bubble' }}</span>
         </button>
-        <div v-if="createMenuOpen" class="explorer-create-menu explorer-tree-menu" role="menu">
-          <button
-            v-if="primaryActionTitle"
-            type="button"
-            role="menuitem"
-            data-explorer-primary-action
-            @click="runPrimaryAction"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">{{ primaryActionIcon || 'chat_bubble' }}</span>
-            {{ primaryActionTitle }}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            data-explorer-create-folder
-            @click="openCreateFolder(baseFolderId)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">create_new_folder</span>
-            New folder
-          </button>
-        </div>
+        <button
+          type="button"
+          class="explorer-tree-header-action explorer-create-action"
+          data-explorer-create-folder
+          :title="`New folder in ${baseFolderName || title || 'top level'}`"
+          :aria-label="`New folder in ${baseFolderName || title || 'top level'}`"
+          @click="openCreateFolder(baseFolderId)"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">create_new_folder</span>
+        </button>
       </div>
     </div>
 
@@ -291,7 +279,6 @@ const dragOverRoot = ref(false);
 const selectedFolderId = ref<string | null>(null);
 const selectedItemId = ref<string | null>(props.currentItemId);
 const baseFolderId = ref<string | null>(null);
-const createMenuOpen = ref(false);
 const dialog = ref<DialogState | null>(null);
 const draftName = ref('');
 const moveDestination = ref('');
@@ -382,7 +369,6 @@ const focusNameInput = async () => {
   nameInput.value?.select();
 };
 const openCreateFolder = (parentFolderId: string | null) => {
-  createMenuOpen.value = false;
   dialog.value = { kind: 'name', mode: 'create-folder', parentFolderId };
   draftName.value = '';
   void focusNameInput();
@@ -391,26 +377,22 @@ const selectRoot = () => {
   selectedFolderId.value = null;
   selectedItemId.value = null;
   baseFolderId.value = null;
-  createMenuOpen.value = false;
   emit('base-folder-change', null);
 };
 const selectFolder = (folderId: string) => {
   selectedFolderId.value = folderId;
   selectedItemId.value = null;
   baseFolderId.value = folderId;
-  createMenuOpen.value = false;
   emit('base-folder-change', folderId);
 };
 const selectItem = (itemType: ExplorerItemType, selectedId: string, folderId: string | null) => {
   selectedItemId.value = selectedId;
   selectedFolderId.value = null;
   baseFolderId.value = folderId;
-  createMenuOpen.value = false;
   emit('base-folder-change', folderId);
   emit('select-item', itemType, selectedId);
 };
 const runPrimaryAction = () => {
-  createMenuOpen.value = false;
   emit('primary-action', baseFolderId.value);
 };
 const openRenameFolder = (folderId: string, name: string) => {
@@ -517,9 +499,8 @@ const handleRootDrop = (event: DragEvent) => {
 };
 
 const handleGlobalKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape' && (dialog.value || createMenuOpen.value)) {
+  if (event.key === 'Escape' && dialog.value) {
     if (dialog.value) closeDialog();
-    createMenuOpen.value = false;
     return;
   }
   const target = event.target as HTMLElement | null;

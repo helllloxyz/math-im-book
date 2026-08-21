@@ -38,16 +38,18 @@ const runAction = async (action: () => Promise<void>) => {
   }
 };
 
-const handleSelectItem = (itemType: ExplorerItemType, itemId: string) => {
+const handleSelectItem = async (itemType: ExplorerItemType, itemId: string) => {
   if (itemType === 'knowledge_node') {
-    window.open(
+    await store.selectNode(itemId);
+    store.activeTab = 'knowledge';
+    window.history.replaceState(
+      window.history.state,
+      '',
       buildWorkspaceHref({
         view: 'knowledge',
         sessionId: store.currentSession?.session_id,
         nodeId: itemId,
-      }),
-      '_blank',
-      'noopener,noreferrer'
+      })
     );
   }
 };

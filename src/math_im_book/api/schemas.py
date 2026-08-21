@@ -238,6 +238,9 @@ class AskRequestSchema(BaseModel):
     knowledge_scope_id: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1)
     ] | None = None
+    conversation_folder_id: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ] | None = None
     knowledge_approval_policy: Literal[
         "agent_decides", "always_ask", "full_auto"
     ] | None = None
@@ -451,6 +454,7 @@ class ExplorerFolderSchema(BaseModel):
     updated_at: str
     sort_order: int = 1000
     path_cached: str | None = None
+    scope_id: str | None = None
 
 
 class ExplorerItemLocationSchema(BaseModel):

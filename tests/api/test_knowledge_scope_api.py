@@ -79,3 +79,42 @@ def test_ask_uses_selected_folder_as_visible_knowledge_scope(tmp_path) -> None:
     assert plan["strategy_mode"] == "top-down"
     assert plan["knowledge_scope_label"] == "Analysis"
 
+
+def test_new_conversation_folder_selects_its_paired_library_scope(tmp_path) -> None:
+    explorer = ExplorerStore(tmp_path / "explorer" / "index.json")
+    conversations, library = explorer.create_scope_root(
+        name="Geometry",
+        primary_scope="sessions",
+    )
+    child = explorer.create_folder(
+        scope="sessions",
+        name="Week 1",
+        parent_folder_id=conversations.folder_id,
+    )
+    credentials_path = tmp_path / "credentials.json"
+    credentials_path.write_text(json.dumps({"credentials": []}), encoding="utf-8")
+    session_store = FileSessionStore(tmp_path / "sessions")
+    client = TestClient(
+        create_app(
+            repository=MarkdownKnowledgeRepository(tmp_path / "knowledge"),
+            credential_registry=FileCredentialRegistry(credentials_path),
+            session_store=session_store,
+            explorer_store=explorer,
+        )
+    )
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "What is a triangle?",
+            "strategy_agent_id": "auto",
+            "conversation_folder_id": child.folder_id,
+        },
+    )
+
+    assert response.status_code == 200
+    session = response.json()["session"]
+    assert session["knowledge_scope_id"] == library.folder_id
+    location = explorer.find_location("session", session["session_id"])
+    assert location is not None
+    assert location.folder_id == child.folder_id

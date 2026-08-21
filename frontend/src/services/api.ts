@@ -357,6 +357,7 @@ export interface ExplorerFolder {
   updated_at: string;
   sort_order: number;
   path_cached?: string | null;
+  scope_id?: string | null;
 }
 
 export interface ExplorerItemLocation {
@@ -655,7 +656,8 @@ export const api = {
     answerStyleId?: string,
     strategyAgentId?: string,
     knowledgeScopeId?: string | null,
-    knowledgeApprovalPolicy?: KnowledgeApprovalPolicy
+    knowledgeApprovalPolicy?: KnowledgeApprovalPolicy,
+    conversationFolderId?: string | null
   ): Promise<AskResponse> {
     const response = await client.post<AskResponse>('/ask', {
       question,
@@ -665,6 +667,7 @@ export const api = {
       strategy_agent_id: strategyAgentId,
       knowledge_scope_id: knowledgeScopeId,
       knowledge_approval_policy: knowledgeApprovalPolicy,
+      conversation_folder_id: conversationFolderId,
     });
     return response.data;
   },
@@ -677,7 +680,8 @@ export const api = {
     strategyAgentId?: string,
     callbacks: AskStreamCallbacks = {},
     knowledgeScopeId?: string | null,
-    knowledgeApprovalPolicy?: KnowledgeApprovalPolicy
+    knowledgeApprovalPolicy?: KnowledgeApprovalPolicy,
+    conversationFolderId?: string | null
   ): Promise<AskResponse> {
     const response = await fetch('/api/ask/stream', {
       method: 'POST',
@@ -692,6 +696,7 @@ export const api = {
         strategy_agent_id: strategyAgentId,
         knowledge_scope_id: knowledgeScopeId,
         knowledge_approval_policy: knowledgeApprovalPolicy,
+        conversation_folder_id: conversationFolderId,
       }),
     });
     if (!response.ok) {

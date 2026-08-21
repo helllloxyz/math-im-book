@@ -27,9 +27,10 @@ describe('BookOutline', () => {
       value: vi.fn(),
       configurable: true,
     });
+    window.history.replaceState({}, '', '/');
   });
 
-  it('renders knowledge explorer rows and opens a node on its own page', async () => {
+  it('renders knowledge explorer rows and switches to a node in the current page', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
@@ -59,6 +60,8 @@ describe('BookOutline', () => {
       },
     ] as any;
     store.currentNode = { id: 'vector-space' } as any;
+    store.currentSession = { session_id: 'chat-1' } as any;
+    const selectNodeSpy = vi.spyOn(store, 'selectNode').mockResolvedValue(undefined);
     const wrapper = mount(BookOutline, {
       global: {
         plugins: [pinia],
@@ -69,13 +72,15 @@ describe('BookOutline', () => {
     expect(wrapper.find('[data-explorer-item="vector-space"]').classes()).toContain('tree-item-active');
 
     await wrapper.get('[data-explorer-item="vector-space"]').trigger('click');
-    expect(window.open).toHaveBeenCalledTimes(1);
-    const [href, target, features] = vi.mocked(window.open).mock.calls[0];
-    const url = new URL(String(href));
+    await flushPromises();
+
+    expect(selectNodeSpy).toHaveBeenCalledWith('vector-space');
+    expect(store.activeTab).toBe('knowledge');
+    expect(window.open).not.toHaveBeenCalled();
+    const url = new URL(window.location.href);
     expect(url.searchParams.get('view')).toBe('knowledge');
+    expect(url.searchParams.get('session')).toBe('chat-1');
     expect(url.searchParams.get('node')).toBe('vector-space');
-    expect(target).toBe('_blank');
-    expect(features).toBe('noopener,noreferrer');
   });
 
   it('updates knowledge icons from the row picker', async () => {
@@ -167,7 +172,6 @@ describe('BookOutline', () => {
     });
     const wrapper = mount(BookOutline, { global: { plugins: [pinia] } });
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
     await flushPromises();
 
@@ -203,7 +207,6 @@ describe('BookOutline', () => {
     });
 
     await wrapper.get('[data-explorer-folder="folder-1"]').trigger('click');
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-create-folder]').trigger('click');
     const body = new DOMWrapper(document.body);
     await body.get('[data-explorer-name-input]').setValue('Linear Algebra');

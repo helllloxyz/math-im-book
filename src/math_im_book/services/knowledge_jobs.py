@@ -51,6 +51,7 @@ class KnowledgeJobRecord:
     job_id: str
     status: str
     session_id: str | None = None
+    knowledge_scope_id: str | None = None
     selection_source_text: str = ""
     anchors: list[AnswerAnchor] = field(default_factory=list)
     question: str = ""
@@ -93,6 +94,7 @@ class InMemoryKnowledgeJobRepository:
         self,
         *,
         session_id: str | None = None,
+        knowledge_scope_id: str | None = None,
         question: str,
         anchors: list[AnswerAnchor],
         selected_node_ids: list[str],
@@ -108,6 +110,7 @@ class InMemoryKnowledgeJobRepository:
             job_id=f"job-{uuid4().hex[:8]}",
             status="queued",
             session_id=session_id,
+            knowledge_scope_id=knowledge_scope_id,
             selection_source_text=selection_source_text,
             anchors=copy.deepcopy(anchors),
             question=question,
@@ -320,6 +323,7 @@ class InMemoryKnowledgeJobRepository:
                     self.explorer_store.ensure_item_location(
                         item_type="knowledge_node",
                         item_id=result.node.id,
+                        folder_id=job.knowledge_scope_id,
                         location_source="system",
                     )
             except Exception as exc:
@@ -402,7 +406,7 @@ class InMemoryKnowledgeJobRepository:
             for node in anchor_nodes
         ]
         return KnowledgeNode(
-            id=self._slugify(title),
+            id=self._node_id_for_scope(title, job.knowledge_scope_id),
             title=title,
             type=draft_type,
             summary=summary,
@@ -413,6 +417,45 @@ class InMemoryKnowledgeJobRepository:
             status="ready",
             symbols=self._merge_symbols(anchor_nodes, job.symbol_constraints),
         )
+
+    def _node_id_for_scope(
+        self,
+        title: str,
+        knowledge_scope_id: str | None,
+    ) -> str:
+        base_id = self._slugify(title)
+        if knowledge_scope_id is None or self.explorer_store is None:
+            return base_id
+
+        target_root = self.explorer_store.root_folder(knowledge_scope_id)
+
+        def available_in_target(candidate_id: str) -> bool:
+            try:
+                self.repository.get_node(candidate_id)
+            except FileNotFoundError:
+                return True
+            location = self.explorer_store.find_location(
+                "knowledge_node",
+                candidate_id,
+            )
+            if location is None or location.folder_id is None:
+                return False
+            existing_root = self.explorer_store.root_folder(location.folder_id)
+            return existing_root.folder_id == target_root.folder_id
+
+        if available_in_target(base_id):
+            return base_id
+
+        scope_key = target_root.scope_id or target_root.folder_id
+        scope_suffix = self._slugify(scope_key).removeprefix("scope-")[-8:]
+        scoped_base = f"{base_id}-{scope_suffix}"
+        candidate_id = scoped_base
+        suffix = 2
+        while True:
+            if available_in_target(candidate_id):
+                return candidate_id
+            candidate_id = f"{scoped_base}-{suffix}"
+            suffix += 1
 
     def _get_job_or_raise(self, job_id: str) -> KnowledgeJobRecord:
         with self._lock:
@@ -448,8 +491,16 @@ class InMemoryKnowledgeJobRepository:
                 system_instruction=(
                     "You are compiling a math knowledge node. "
                     "Return JSON only with keys summary and detail. "
+                    "Both values must be Markdown strings, and JSON backslashes must be escaped correctly. "
                     "summary must be concise (1-2 sentences). "
-                    "detail must be substantive and reusable as knowledge content."
+                    "detail must be substantive and reusable as knowledge content. "
+                    "Write in the primary language of the user's Question and Selected text; "
+                    "when that language is Chinese, keep the content in natural Chinese except for "
+                    "standard proper names and mathematical notation, even if draft metadata or anchor "
+                    "nodes contain English. "
+                    "Wrap every mathematical expression in LaTeX delimiters: use $...$ inline and "
+                    "$$...$$ for display math. Never leave TeX-like mathematics as plain text; "
+                    "for example, write $T_pM$ rather than T_pM."
                 ),
                 user_message=(
                     f"Title: {title}\n"

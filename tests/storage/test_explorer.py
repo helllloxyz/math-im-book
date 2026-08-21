@@ -29,6 +29,43 @@ def test_same_folder_name_is_allowed_in_different_scopes(tmp_path: Path) -> None
     assert sessions.scope == "sessions"
 
 
+def test_scope_root_creates_paired_conversation_and_library_folders(
+    tmp_path: Path,
+) -> None:
+    store = ExplorerStore(tmp_path / "explorer" / "index.json")
+
+    conversations, library = store.create_scope_root(
+        name="Linear Algebra",
+        primary_scope="sessions",
+    )
+    child = store.create_folder(
+        scope="sessions",
+        name="Week 1",
+        parent_folder_id=conversations.folder_id,
+    )
+
+    assert conversations.scope_id is not None
+    assert library.scope_id == conversations.scope_id
+    assert child.scope_id == conversations.scope_id
+    assert store.paired_scope_root(
+        child.folder_id,
+        target_scope="knowledge",
+    ).folder_id == library.folder_id
+
+
+def test_scope_root_rename_updates_its_library_pair(tmp_path: Path) -> None:
+    store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    conversations, library = store.create_scope_root(
+        name="Algebra",
+        primary_scope="sessions",
+    )
+
+    store.rename_scope_root(conversations.folder_id, "Abstract Algebra")
+
+    assert store.get_folder(conversations.folder_id).name == "Abstract Algebra"
+    assert store.get_folder(library.folder_id).name == "Abstract Algebra"
+
+
 def test_rename_folder_rejects_duplicate_sibling_names(tmp_path: Path) -> None:
     store = ExplorerStore(tmp_path / "explorer" / "index.json")
     store.create_folder(scope="knowledge", name="Linear Algebra", parent_folder_id=None)

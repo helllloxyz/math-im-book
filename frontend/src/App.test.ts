@@ -132,7 +132,6 @@ describe('App new session flow', () => {
       },
     });
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(store.currentSession).toBeNull();
@@ -156,7 +155,6 @@ describe('App new session flow', () => {
     expect(wrapper.find('[data-sidebar-new-conversation]').exists()).toBe(false);
     expect(wrapper.findAll('button').filter((button) => button.text().includes('New Conversation'))).toHaveLength(0);
 
-    await wrapper.get('[data-explorer-create-menu]').trigger('click');
     await wrapper.get('[data-explorer-primary-action]').trigger('click');
 
     expect(newSessionSpy).toHaveBeenCalledWith(null);
@@ -177,7 +175,8 @@ describe('App new session flow', () => {
 
     expect(wrapper.find('[data-sidebar-context-label]').exists()).toBe(false);
     expect(wrapper.text()).toContain('Library');
-    expect(wrapper.find('[data-explorer-create-menu]').exists()).toBe(true);
+    expect(wrapper.find('[data-explorer-primary-action]').exists()).toBe(true);
+    expect(wrapper.find('[data-explorer-create-folder]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain('Knowledge Explorer');
   });
 
@@ -575,6 +574,86 @@ describe('App new session flow', () => {
     expect(selectSessionSpy).toHaveBeenCalledWith('chat-1');
     expect(store.focusedAgentMessageId).toBe('msg_assistant_1');
     expect(scroll.scrollTop).toBe(0);
+  });
+
+  it('opens a different conversation at the top', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    mockStartupFetches(store);
+    store.currentSession = {
+      session_id: 'chat-1',
+      title: 'First session',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [
+        {
+          message_id: 'msg_1',
+          role: 'assistant',
+          content: 'First answer',
+          assistant_context: { referenced_node_ids: [], symbol_conflicts: [], alignment_notes: [] },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      ],
+    } as any;
+
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
+    const scroll = wrapper.get('.workspace-scroll').element as HTMLElement;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 900 });
+    scroll.scrollTop = 420;
+
+    store.currentSession = {
+      session_id: 'chat-2',
+      title: 'Second session',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [
+        {
+          message_id: 'msg_2',
+          role: 'assistant',
+          content: 'Second answer',
+          assistant_context: { referenced_node_ids: [], symbol_conflicts: [], alignment_notes: [] },
+          created_at: '2026-04-02T10:00:01Z',
+        },
+      ],
+    } as any;
+
+    await vi.waitFor(() => expect(scroll.scrollTop).toBe(0));
+  });
+
+  it('keeps scrolling to the bottom for new content in the open conversation', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    mockStartupFetches(store);
+    store.currentSession = {
+      session_id: 'chat-1',
+      title: 'Current session',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [
+        {
+          message_id: 'msg_1',
+          role: 'assistant',
+          content: 'First answer',
+          assistant_context: { referenced_node_ids: [], symbol_conflicts: [], alignment_notes: [] },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      ],
+    } as any;
+
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
+    const scroll = wrapper.get('.workspace-scroll').element as HTMLElement;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 900 });
+
+    store.currentSession = {
+      ...store.currentSession!,
+      messages: [
+        {
+          ...store.currentSession!.messages[0],
+          content: 'First answer, continued',
+        },
+      ],
+    } as any;
+
+    await vi.waitFor(() => expect(scroll.scrollTop).toBe(900));
   });
 
   it('uses one assistant persona name for every assistant message in a session', async () => {
