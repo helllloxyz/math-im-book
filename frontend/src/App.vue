@@ -49,7 +49,7 @@
         </button>
         <button
           type="button"
-          :class="{ active: activeTab === 'book' }"
+          :class="{ active: activeTab === 'book' || activeTab === 'knowledge' }"
           @click="showLibrary"
         >
           <span class="workspace-switcher-icon" aria-hidden="true">
@@ -75,6 +75,13 @@
     </aside>
 
     <main class="conversation-workspace">
+      <ReaderPanel
+        v-if="activeTab === 'knowledge'"
+        :key="currentNode?.id || 'knowledge-page'"
+        page-mode
+      />
+
+      <template v-else>
       <header class="workspace-header">
         <div class="workspace-title-block">
           <button
@@ -121,8 +128,11 @@
               :assistant-name="assistantName"
               :can-regenerate="canRegenerateMessage(msg.message_id)"
               :is-loading="loading && isLatestMessage(msg.message_id)"
+              :agent-steps="isLatestMessage(msg.message_id) ? agentRunSteps : []"
+              :approval-busy="knowledgeApprovalBusyMessageIds.includes(msg.message_id)"
               @regenerate="handleRegenerate"
-              @open-node="store.selectNode"
+              @approve-knowledge="store.acceptSuggestedDrafts"
+              @reject-knowledge="store.rejectSuggestedDrafts"
             />
           </transition-group>
         </div>
@@ -156,21 +166,8 @@
       <footer v-if="activeTab !== 'agent'" class="composer-dock">
         <ChatComposer :loading="loading" @ask="store.ask" />
       </footer>
+      </template>
     </main>
-
-    <aside
-      v-if="currentNode"
-      data-reader-panel-shell
-      class="reader-panel-shell"
-      :class="{ expanded: isReaderExpanded }"
-    >
-      <ReaderPanel
-        :key="currentNode.id"
-        :is-expanded="isReaderExpanded"
-        @toggle-expanded="isReaderExpanded = !isReaderExpanded"
-        @close="closeReader"
-      />
-    </aside>
 
     <SelectionActionMenu />
   </div>
@@ -192,7 +189,15 @@ import { useWorkspaceStore } from './stores/workspace'
 import { buildWorkspaceHref, readWorkspaceTarget } from './services/workspaceNavigation'
 
 const store = useWorkspaceStore()
-const { currentSession, currentNode, outline, loading, activeTab } = storeToRefs(store)
+const {
+  currentSession,
+  currentNode,
+  outline,
+  loading,
+  activeTab,
+  agentRunSteps,
+  knowledgeApprovalBusyMessageIds,
+} = storeToRefs(store)
 
 const assistantNames = ['Gauss', 'Noether', 'Euler', 'Riemann', 'Hypatia', 'Newton', 'Lagrange', 'Fourier']
 
@@ -217,7 +222,6 @@ const workspaceTitle = computed(() => {
 })
 
 const scrollContainer = ref<HTMLElement | null>(null)
-const isReaderExpanded = ref(false)
 const isSidebarOpen = ref(false)
 
 const scrollToBottom = async () => {
@@ -278,6 +282,20 @@ const initializeWorkspace = async () => {
     store.openAgentStateForMessage(target.messageId)
     await nextTick()
     if (scrollContainer.value) scrollContainer.value.scrollTop = 0
+  } else if (target.view === 'knowledge' && target.nodeId) {
+    activeTab.value = 'knowledge'
+  } else if (target.view === 'library' && target.nodeId) {
+    // Keep old knowledge links working while moving details to their own page.
+    activeTab.value = 'knowledge'
+    window.history.replaceState(
+      window.history.state,
+      '',
+      buildWorkspaceHref({
+        view: 'knowledge',
+        sessionId: target.sessionId,
+        nodeId: target.nodeId,
+      })
+    )
   } else if (target.view === 'library') {
     activeTab.value = 'book'
   }
@@ -307,11 +325,6 @@ const startNewInquiry = () => {
 }
 
 const usePrompt = (prompt: string) => store.setDraftQuestion(prompt)
-
-const closeReader = () => {
-  currentNode.value = null
-  isReaderExpanded.value = false
-}
 
 const handleRegenerate = (messageId: string) => store.regenerate(messageId)
 

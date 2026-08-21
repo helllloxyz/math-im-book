@@ -6,7 +6,7 @@ from pathlib import Path
 from queue import Queue
 from threading import Thread
 from time import perf_counter
-from typing import Callable
+from typing import Callable, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response, status
@@ -38,6 +38,7 @@ from math_im_book.api.schemas import (
     ExplorerOrganizeResponseSchema,
     ExplorerTreeResponseSchema,
     KnowledgeDraftCandidateSchema,
+    KnowledgeAuthorizationDecisionSchema,
     KnowledgeJobSchema,
     KnowledgeNodeUpdateSchema,
     KnowledgeQueueItemSchema,
@@ -175,6 +176,9 @@ class SessionUpdateSchema(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     icon: str | None = Field(default=None, min_length=1)
     conversation_model: DefaultModelSelectionSchema | None = None
+    knowledge_approval_policy: Literal[
+        "agent_decides", "always_ask", "full_auto"
+    ] | None = None
 
 
 class CompileSuggestedDraftsRequestSchema(BaseModel):
@@ -380,7 +384,9 @@ def create_app(
         branch_context: SessionBranchContext | None,
         answer_style_id: str | None,
         strategy_agent_id: str | None,
+        knowledge_approval_policy: str,
         stream_callback: Callable[[str], None] | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
     ):
         started_at = perf_counter()
         logger.info(
@@ -398,7 +404,9 @@ def create_app(
                 branch_context=_meaningful_branch_context(branch_context),
                 answer_style_id=answer_style_id,
                 strategy_agent_id=strategy_agent_id,
+                knowledge_approval_policy=knowledge_approval_policy,
                 stream_callback=stream_callback,
+                progress_callback=progress_callback,
             )
         except KeyError as exc:
             _log_question_failure(session_id, started_at, "configuration", exc)
@@ -439,6 +447,7 @@ def create_app(
     def _ask_response(
         payload: AskRequestSchema,
         stream_callback: Callable[[str], None] | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> AskResponseSchema:
         session_id = payload.session_id or f"chat-{uuid4().hex[:8]}"
         existing_record = (
@@ -475,6 +484,18 @@ def create_app(
                 else configured_default_strategy_agent_id()
             )
         )
+        default_options = dict(provider_options_payload.get("default_options") or {})
+        knowledge_approval_policy = (
+            payload.knowledge_approval_policy
+            or (
+                existing_record.knowledge_approval_policy
+                if existing_record is not None
+                else str(
+                    default_options.get("knowledge_approval_policy")
+                    or "agent_decides"
+                )
+            )
+        )
         base_branch_context = (
             existing_record.branch_context
             if existing_record is not None
@@ -509,7 +530,9 @@ def create_app(
             branch_context=requested_branch_context,
             answer_style_id=payload.answer_style_id,
             strategy_agent_id=strategy_agent_id,
+            knowledge_approval_policy=knowledge_approval_policy,
             stream_callback=stream_callback,
+            progress_callback=progress_callback,
         )
 
         user_message = SessionMessage(role="user", content=payload.question)
@@ -574,6 +597,7 @@ def create_app(
                     provider_profile=provider_profile,
                     default_answer_style_id=None,
                     strategy_agent_id=strategy_agent_id,
+                    knowledge_approval_policy=knowledge_approval_policy,
                     branch_context=branch_context,
                     messages=[],
                 )
@@ -595,6 +619,7 @@ def create_app(
             conversation_model=conversation_model,
             provider_profile=provider_profile,
             strategy_agent_id=strategy_agent_id,
+            knowledge_approval_policy=knowledge_approval_policy,
         )
         sessions.save_working_turn(session_id, None)
         if result.answer.knowledge_job_id is not None:
@@ -658,14 +683,15 @@ def create_app(
     @app.post("/api/ask/stream")
     def ask_stream(payload: AskRequestSchema) -> StreamingResponse:
         def event_stream():
-            queue: Queue[str | None] = Queue()
+            queue: Queue[tuple[str, object] | None] = Queue()
             state: dict[str, object] = {}
 
             def worker() -> None:
                 try:
                     response = _ask_response(
                         payload,
-                        stream_callback=lambda delta: queue.put(delta),
+                        stream_callback=lambda delta: queue.put(("chunk", delta)),
+                        progress_callback=lambda event: queue.put(("progress", event)),
                     )
                     state["response"] = response
                 except HTTPException as exc:
@@ -676,10 +702,14 @@ def create_app(
             Thread(target=worker, daemon=True).start()
 
             while True:
-                item = queue.get()
-                if item is None:
+                queued_event = queue.get()
+                if queued_event is None:
                     break
-                yield _sse_event("chunk", {"delta": item})
+                event_name, event_payload = queued_event
+                if event_name == "chunk":
+                    yield _sse_event("chunk", {"delta": event_payload})
+                elif isinstance(event_payload, dict):
+                    yield _sse_event("progress", event_payload)
 
             error = state.get("error")
             if isinstance(error, HTTPException):
@@ -811,6 +841,50 @@ def create_app(
             changed = True
         if changed:
             sessions.save_record(replace(record, messages=updated_messages))
+
+    def _set_knowledge_authorization_status(
+        *,
+        session_id: str,
+        message_id: str,
+        authorization_status: str,
+    ) -> SessionRecord:
+        record = sessions.load_record(session_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        updated_messages: list[SessionMessage] = []
+        changed = False
+        for message in record.messages:
+            if message.message_id != message_id:
+                updated_messages.append(message)
+                continue
+            plan = message.assistant_context.orchestration_plan
+            if message.role != "assistant" or plan is None or not plan.candidate_drafts:
+                raise HTTPException(status_code=409, detail="No knowledge approval is pending")
+            authorization = replace(
+                plan.authorization,
+                status=authorization_status,
+            )
+            state_items = list(message.assistant_context.state_items)
+            if authorization_status == "denied":
+                draft_titles = {draft.title for draft in plan.candidate_drafts}
+                state_items = [
+                    replace(item, state="dismissed")
+                    if item.kind == "knowledge_draft" and item.title in draft_titles
+                    else item
+                    for item in state_items
+                ]
+            updated_context = replace(
+                message.assistant_context,
+                orchestration_plan=replace(plan, authorization=authorization),
+                state_items=state_items,
+            )
+            updated_messages.append(replace(message, assistant_context=updated_context))
+            changed = True
+        if not changed:
+            raise HTTPException(status_code=404, detail="Assistant message not found")
+        updated_record = replace(record, messages=updated_messages)
+        sessions.save_record(updated_record)
+        return updated_record
 
     def _reconcile_ready_knowledge_items(record: SessionRecord) -> SessionRecord:
         active_jobs = {
@@ -1050,10 +1124,15 @@ def create_app(
         record = sessions.load_record(session_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        message = next(
-            (item for item in record.messages if item.message_id == message_id),
+        message_index = next(
+            (
+                index
+                for index, item in enumerate(record.messages)
+                if item.message_id == message_id
+            ),
             None,
         )
+        message = record.messages[message_index] if message_index is not None else None
         if message is None or message.role != "assistant":
             raise HTTPException(status_code=404, detail="Assistant message not found")
         plan = message.assistant_context.orchestration_plan
@@ -1063,8 +1142,24 @@ def create_app(
             raise HTTPException(status_code=400, detail="Duplicate draft indexes")
         if any(index < 0 or index >= len(plan.candidate_drafts) for index in payload.draft_indexes):
             raise HTTPException(status_code=400, detail="Draft index out of range")
+        if plan.authorization.status == "denied":
+            raise HTTPException(status_code=409, detail="Knowledge write was denied")
+
+        _set_knowledge_authorization_status(
+            session_id=session_id,
+            message_id=message_id,
+            authorization_status="approved",
+        )
 
         selected_candidates = [plan.candidate_drafts[index] for index in payload.draft_indexes]
+        source_question = next(
+            (
+                item.content
+                for item in reversed(record.messages[:message_index])
+                if item.role == "user"
+            ),
+            message.content,
+        )
         draft_requests = [
             PendingDraftRequest(
                 title=candidate.title,
@@ -1099,9 +1194,9 @@ def create_app(
         job = resolved_knowledge_job_repository.submit_compile_job(
             session_id=session_id,
             source_message_id=message_id,
-            question=record.messages[-2].content if len(record.messages) >= 2 else message.content,
+            question=source_question,
             anchors=anchors,
-            selected_node_ids=list(record.branch_context.active_node_ids),
+            selected_node_ids=list(message.assistant_context.referenced_node_ids),
             draft_requests=draft_requests,
             provider_profile=provider_profile,
             symbol_constraints=dict(record.branch_context.active_symbols),
@@ -1118,6 +1213,35 @@ def create_app(
                 "error_message": refreshed.error_message,
             }
         )
+
+    @app.post(
+        "/api/sessions/{session_id}/messages/{message_id}/suggested-drafts/reject",
+        response_model=SessionSchema,
+    )
+    def reject_suggested_drafts(
+        session_id: str,
+        message_id: str,
+    ) -> SessionSchema:
+        record = sessions.load_record(session_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        message = next(
+            (item for item in record.messages if item.message_id == message_id),
+            None,
+        )
+        if message is None or message.role != "assistant":
+            raise HTTPException(status_code=404, detail="Assistant message not found")
+        plan = message.assistant_context.orchestration_plan
+        if plan is None or not plan.candidate_drafts:
+            raise HTTPException(status_code=409, detail="No suggested drafts to reject")
+        if plan.authorization.status not in {"pending", "not_required"}:
+            raise HTTPException(status_code=409, detail="Knowledge approval is not pending")
+        updated_record = _set_knowledge_authorization_status(
+            session_id=session_id,
+            message_id=message_id,
+            authorization_status="denied",
+        )
+        return _record_to_session_schema(updated_record)
 
     @app.post(
         "/api/sessions/{session_id}/messages/{message_id}/regenerate",
@@ -1162,6 +1286,7 @@ def create_app(
             branch_context=record.branch_context,
             answer_style_id=payload.answer_style_id,
             strategy_agent_id=record.strategy_agent_id,
+            knowledge_approval_policy=record.knowledge_approval_policy,
         )
         orchestration_plan = result.orchestration_plan or result.action.orchestration_plan
         assistant_message = SessionMessage(
@@ -1194,6 +1319,7 @@ def create_app(
             provider_profile=provider_profile,
             default_answer_style_id=record.default_answer_style_id,
             strategy_agent_id=record.strategy_agent_id,
+            knowledge_approval_policy=record.knowledge_approval_policy,
             branch_context=branch_context,
             messages=[*record.messages[:-1], assistant_message],
             created_at=record.created_at,
@@ -1367,6 +1493,11 @@ def create_app(
             icon=payload.icon if payload.icon is not None else record.icon,
             conversation_model=conversation_model,
             provider_profile=provider_profile,
+            knowledge_approval_policy=(
+                payload.knowledge_approval_policy
+                if payload.knowledge_approval_policy is not None
+                else record.knowledge_approval_policy
+            ),
         )
         return _record_to_session_schema(updated)
 
@@ -1418,6 +1549,7 @@ def create_app(
             provider_profile=parent_record.provider_profile,
             default_answer_style_id=parent_record.default_answer_style_id,
             strategy_agent_id=parent_record.strategy_agent_id,
+            knowledge_approval_policy=parent_record.knowledge_approval_policy,
             branch_context=branch_context,
             messages=[],
         )
@@ -1481,6 +1613,7 @@ def create_app(
                         ),
                         default_answer_style_id=record.default_answer_style_id,
                         strategy_agent_id=record.strategy_agent_id,
+                        knowledge_approval_policy=record.knowledge_approval_policy,
                         knowledge_scope_id=record.branch_context.knowledge_scope_id,
                         branch=_branch_context_to_schema(
                             record.branch_context
@@ -2168,6 +2301,7 @@ def _record_to_session_schema(record: SessionRecord) -> SessionSchema:
         provider_profile=_provider_profile_to_schema(record.provider_profile),
         default_answer_style_id=record.default_answer_style_id,
         strategy_agent_id=record.strategy_agent_id,
+        knowledge_approval_policy=record.knowledge_approval_policy,
         knowledge_scope_id=record.branch_context.knowledge_scope_id,
         branch=_branch_context_to_schema(record.branch_context),
         messages=[_session_message_to_schema(message) for message in record.messages],
@@ -2288,6 +2422,14 @@ def _orchestration_plan_to_schema(plan: OrchestrationPlan) -> OrchestrationPlanS
         strategy_reason=plan.strategy_reason,
         knowledge_scope_id=plan.knowledge_scope_id,
         knowledge_scope_label=plan.knowledge_scope_label,
+        authorization=KnowledgeAuthorizationDecisionSchema(
+            policy=plan.authorization.policy,
+            mode=plan.authorization.mode,
+            status=plan.authorization.status,
+            risk_level=plan.authorization.risk_level,
+            operation=plan.authorization.operation,
+            reason=plan.authorization.reason,
+        ),
     )
 
 
@@ -2364,7 +2506,13 @@ def _compact_session_record(
     )
     return SessionRecord(
         session_id=record.session_id,
+        title=record.title,
+        icon=record.icon,
+        conversation_model=record.conversation_model,
         provider_profile=record.provider_profile,
+        default_answer_style_id=record.default_answer_style_id,
+        strategy_agent_id=record.strategy_agent_id,
+        knowledge_approval_policy=record.knowledge_approval_policy,
         branch_context=SessionBranchContext(
             branch_id=record.branch_context.branch_id,
             parent_session_id=record.branch_context.parent_session_id,

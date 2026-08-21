@@ -61,6 +61,9 @@ class DefaultOptionsSchema(BaseModel):
         default_factory=DefaultModelSelectionSchema
     )
     markdown_theme: Literal["academic", "reading", "geek"] = "academic"
+    knowledge_approval_policy: Literal[
+        "agent_decides", "always_ask", "full_auto"
+    ] = "agent_decides"
 
 
 class ProviderOptionsResponseSchema(BaseModel):
@@ -141,6 +144,19 @@ class KnowledgeDraftCandidateSchema(BaseModel):
     reason: str
 
 
+class KnowledgeAuthorizationDecisionSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy: Literal["agent_decides", "always_ask", "full_auto"] = "agent_decides"
+    mode: Literal["not_required", "auto_execute", "require_approval"] = "not_required"
+    status: Literal[
+        "not_required", "auto_approved", "pending", "approved", "denied"
+    ] = "not_required"
+    risk_level: Literal["low", "medium", "high"] = "low"
+    operation: str = "none"
+    reason: str = "本轮不会修改知识库。"
+
+
 class OrchestrationPlanSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -157,6 +173,9 @@ class OrchestrationPlanSchema(BaseModel):
     strategy_reason: str = ""
     knowledge_scope_id: str | None = None
     knowledge_scope_label: str = "全部知识"
+    authorization: KnowledgeAuthorizationDecisionSchema = Field(
+        default_factory=KnowledgeAuthorizationDecisionSchema
+    )
 
 
 class AgentStateItemSchema(BaseModel):
@@ -218,6 +237,9 @@ class AskRequestSchema(BaseModel):
     ] | None = None
     knowledge_scope_id: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1)
+    ] | None = None
+    knowledge_approval_policy: Literal[
+        "agent_decides", "always_ask", "full_auto"
     ] | None = None
 
 
@@ -281,6 +303,9 @@ class SessionSchema(BaseModel):
     provider_profile: ProviderProfileSchema | None = None
     default_answer_style_id: str | None = None
     strategy_agent_id: str = "top-down"
+    knowledge_approval_policy: Literal[
+        "agent_decides", "always_ask", "full_auto"
+    ] = "agent_decides"
     knowledge_scope_id: str | None = None
     branch: SessionBranchSchema = Field(default_factory=SessionBranchSchema)
     messages: list["SessionMessageSchema"] = Field(default_factory=list)
@@ -296,6 +321,9 @@ class SessionListItemSchema(BaseModel):
     provider_profile: ProviderProfileSchema | None = None
     default_answer_style_id: str | None = None
     strategy_agent_id: str = "top-down"
+    knowledge_approval_policy: Literal[
+        "agent_decides", "always_ask", "full_auto"
+    ] = "agent_decides"
     knowledge_scope_id: str | None = None
     branch: SessionBranchSchema = Field(default_factory=SessionBranchSchema)
     message_count: int

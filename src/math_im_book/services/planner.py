@@ -132,7 +132,7 @@ class QuestionPlanner:
         provider_profile: ProviderProfile,
         branch_symbols: dict[str, str],
     ) -> AgentAction:
-        candidate_node_ids = {node.id for node in nodes[:12]}
+        candidate_node_ids = {node.id for node in nodes}
         user_profile_summary = self.user_profile_repository.load()
         provider_result = self.provider_gateway.generate(
             provider_profile,
@@ -152,10 +152,10 @@ class QuestionPlanner:
                         else "none"
                     )
                     + "\n"
-                    "Candidate nodes:\n"
+                    "Knowledge node index (titles and summaries only):\n"
                     + "\n".join(
                         f"- id={node.id}; title={node.title}; summary={node.summary}"
-                        for node in nodes[:12]
+                        for node in nodes
                     )
                 ),
                 session_id=session_id,
@@ -404,6 +404,10 @@ class QuestionPlanner:
             "definition, theorem, proof_skeleton, example, counterexample, notation, bridge, summary. "
             "Use draft_first_then_answer only when durable knowledge should be created before answering. "
             "Use answer_then_suggest_drafts for broad exploratory questions that should not be persisted immediately. "
+            "Treat the supplied knowledge node index as a semantic search space: match by meaning, not only shared words. "
+            "Select at most 6 node ids and only when their title and summary materially support the answer. "
+            "The full node bodies are intentionally unavailable; never imply that you inspected details not supplied here. "
+            "When nodes are selected, use profile_context_summary to briefly explain what context they contribute. "
             "user_visible_summary and candidate draft reasons must use the same language as the user's question. "
             "For backward compatibility, action_type and draft_requests are also accepted.",
         ]

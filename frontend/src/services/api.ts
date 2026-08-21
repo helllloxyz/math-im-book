@@ -6,6 +6,7 @@ export type ProviderType = 'gemini' | 'openai_compatible';
 export type ProviderId = 'gemini' | 'deepseek' | 'openrouter' | 'glm';
 export type SelectionSourceType = 'chat-message' | 'knowledge-node';
 export type SelectionKnowledgePromptKind = 'definition' | 'intuition_node' | 'example' | 'proof';
+export type KnowledgeApprovalPolicy = 'agent_decides' | 'always_ask' | 'full_auto';
 
 export interface ProviderProfile {
   provider_id?: ProviderId;
@@ -50,6 +51,7 @@ export interface DefaultOptions {
   conversation_model: DefaultModelSelection;
   utility_model: DefaultModelSelection;
   markdown_theme: 'academic' | 'reading' | 'geek';
+  knowledge_approval_policy: KnowledgeApprovalPolicy;
 }
 
 export interface ProviderOptionsPayload {
@@ -112,6 +114,15 @@ export interface KnowledgeDraftCandidate {
   reason: string;
 }
 
+export interface KnowledgeAuthorizationDecision {
+  policy?: KnowledgeApprovalPolicy;
+  mode: 'not_required' | 'auto_execute' | 'require_approval';
+  status: 'not_required' | 'auto_approved' | 'pending' | 'approved' | 'denied';
+  risk_level: 'low' | 'medium' | 'high';
+  operation: string;
+  reason: string;
+}
+
 export interface OrchestrationPlan {
   route: string;
   intent: string;
@@ -126,6 +137,7 @@ export interface OrchestrationPlan {
   strategy_reason: string;
   knowledge_scope_id?: string | null;
   knowledge_scope_label: string;
+  authorization?: KnowledgeAuthorizationDecision;
 }
 
 export interface AgentStateItem {
@@ -231,6 +243,7 @@ export interface Session {
   provider_profile?: ProviderProfile;
   default_answer_style_id?: string | null;
   strategy_agent_id?: string;
+  knowledge_approval_policy?: KnowledgeApprovalPolicy;
   knowledge_scope_id?: string | null;
   branch: SessionBranch;
   messages: SessionMessage[];
@@ -244,6 +257,7 @@ export interface SessionListItem {
   provider_profile?: ProviderProfile;
   default_answer_style_id?: string | null;
   strategy_agent_id?: string;
+  knowledge_approval_policy?: KnowledgeApprovalPolicy;
   knowledge_scope_id?: string | null;
   branch: SessionBranch;
   message_count: number;
@@ -280,6 +294,14 @@ export interface AskResponse {
 
 export interface AskStreamCallbacks {
   onChunk?: (delta: string) => void;
+  onProgress?: (event: AgentProgressEvent) => void;
+}
+
+export interface AgentProgressEvent {
+  stage: string;
+  label: string;
+  detail?: string;
+  state: 'running' | 'completed' | 'failed';
 }
 
 export interface KnowledgeJob {
@@ -307,6 +329,7 @@ export interface SessionUpdatePayload {
   title?: string;
   icon?: string;
   conversation_model?: DefaultModelSelection;
+  knowledge_approval_policy?: KnowledgeApprovalPolicy;
 }
 
 export interface RegenerateRequestPayload {
@@ -555,6 +578,16 @@ export const api = {
     return response.data;
   },
 
+  async rejectSuggestedDrafts(
+    sessionId: string,
+    messageId: string
+  ): Promise<Session> {
+    const response = await client.post<Session>(
+      `/sessions/${sessionId}/messages/${messageId}/suggested-drafts/reject`
+    );
+    return response.data;
+  },
+
   async compileSelectionKnowledge(payload: SelectionKnowledgeRequest): Promise<KnowledgeJob> {
     const response = await client.post<KnowledgeJob>('/selection/knowledge-drafts', payload);
     return response.data;
@@ -621,7 +654,8 @@ export const api = {
     conversationModel?: DefaultModelSelection,
     answerStyleId?: string,
     strategyAgentId?: string,
-    knowledgeScopeId?: string | null
+    knowledgeScopeId?: string | null,
+    knowledgeApprovalPolicy?: KnowledgeApprovalPolicy
   ): Promise<AskResponse> {
     const response = await client.post<AskResponse>('/ask', {
       question,
@@ -630,6 +664,7 @@ export const api = {
       answer_style_id: answerStyleId,
       strategy_agent_id: strategyAgentId,
       knowledge_scope_id: knowledgeScopeId,
+      knowledge_approval_policy: knowledgeApprovalPolicy,
     });
     return response.data;
   },
@@ -641,7 +676,8 @@ export const api = {
     answerStyleId?: string,
     strategyAgentId?: string,
     callbacks: AskStreamCallbacks = {},
-    knowledgeScopeId?: string | null
+    knowledgeScopeId?: string | null,
+    knowledgeApprovalPolicy?: KnowledgeApprovalPolicy
   ): Promise<AskResponse> {
     const response = await fetch('/api/ask/stream', {
       method: 'POST',
@@ -655,6 +691,7 @@ export const api = {
         answer_style_id: answerStyleId,
         strategy_agent_id: strategyAgentId,
         knowledge_scope_id: knowledgeScopeId,
+        knowledge_approval_policy: knowledgeApprovalPolicy,
       }),
     });
     if (!response.ok) {
@@ -690,6 +727,10 @@ export const api = {
           callbacks.onChunk?.(String(parsed.data.delta || ''));
           continue;
         }
+        if (parsed.event === 'progress') {
+          callbacks.onProgress?.(parsed.data as unknown as AgentProgressEvent);
+          continue;
+        }
         if (parsed.event === 'final') {
           finalPayload = parsed.data as unknown as AskResponse;
           continue;
@@ -704,6 +745,8 @@ export const api = {
     if (trailingEvent) {
       if (trailingEvent.event === 'chunk') {
         callbacks.onChunk?.(String(trailingEvent.data.delta || ''));
+      } else if (trailingEvent.event === 'progress') {
+        callbacks.onProgress?.(trailingEvent.data as unknown as AgentProgressEvent);
       } else if (trailingEvent.event === 'final') {
         finalPayload = trailingEvent.data as unknown as AskResponse;
       } else if (trailingEvent.event === 'error') {

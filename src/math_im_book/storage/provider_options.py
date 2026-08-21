@@ -113,6 +113,7 @@ DEFAULT_PROVIDER_OPTIONS = {
             "model": "gemini-2.5-flash",
             "credential_id": None,
         },
+        "knowledge_approval_policy": "agent_decides",
     },
 }
 
@@ -155,9 +156,6 @@ def _normalize_provider_options(payload: dict[str, object]) -> dict[str, object]
 
     if "default_options" not in payload:
         legacy = dict(payload.get("conversation_title_generation") or {})
-        normalized["default_options"] = copy.deepcopy(
-            DEFAULT_PROVIDER_OPTIONS["default_options"]
-        )
         if legacy.get("provider_type") and legacy.get("model"):
             normalized["default_options"]["utility_model"].update(
                 {
@@ -165,4 +163,13 @@ def _normalize_provider_options(payload: dict[str, object]) -> dict[str, object]
                     "model": legacy["model"],
                 }
             )
+
+    raw_defaults = dict(normalized.get("default_options") or {})
+    merged_defaults = copy.deepcopy(DEFAULT_PROVIDER_OPTIONS["default_options"])
+    merged_defaults.update(raw_defaults)
+    for model_key in ("conversation_model", "utility_model"):
+        model_options = copy.deepcopy(DEFAULT_PROVIDER_OPTIONS["default_options"][model_key])
+        model_options.update(dict(raw_defaults.get(model_key) or {}))
+        merged_defaults[model_key] = model_options
+    normalized["default_options"] = merged_defaults
     return normalized

@@ -31,6 +31,20 @@ describe('workspaceNavigation', () => {
     });
   });
 
+  it('builds and reads a dedicated knowledge page target', () => {
+    const href = buildWorkspaceHref(
+      { view: 'knowledge', sessionId: 'chat-1', nodeId: 'node-42' },
+      'https://mathbook.test/app?theme=reading'
+    );
+
+    expect(readWorkspaceTarget(href)).toEqual({
+      view: 'knowledge',
+      sessionId: 'chat-1',
+      messageId: undefined,
+      nodeId: 'node-42',
+    });
+  });
+
   it('reads a fork target from a workspace URL', () => {
     expect(
       readWorkspaceTarget('https://mathbook.test/?view=fork&session=chat-1&message=msg-2')

@@ -39,6 +39,7 @@ def test_sessions_endpoint_returns_provider_profile_and_history(tmp_path) -> Non
             session_id="chat-1",
             title="Linear Maps",
             icon="function",
+            knowledge_approval_policy="full_auto",
             provider_profile=ProviderProfile(
                 provider_type="gemini",
                 model="gemini-2.5-flash",
@@ -70,6 +71,7 @@ def test_sessions_endpoint_returns_provider_profile_and_history(tmp_path) -> Non
     assert body["icon"] == "function"
     assert body["default_answer_style_id"] is None
     assert body["strategy_agent_id"] == "top-down"
+    assert body["knowledge_approval_policy"] == "full_auto"
     assert body["provider_profile"]["provider_type"] == "gemini"
     assert body["branch"] == {
         "branch_id": None,
@@ -247,6 +249,8 @@ def test_ask_persists_assistant_plan_and_state_for_agent_state_and_sessions(
         json={
             "session_id": "chat-3",
             "question": "线性代数",
+            "strategy_agent_id": "raw",
+            "knowledge_approval_policy": "always_ask",
             "provider_profile": {
                 "provider_type": "gemini",
                 "model": "gemini-2.5-flash",
@@ -256,18 +260,21 @@ def test_ask_persists_assistant_plan_and_state_for_agent_state_and_sessions(
     )
 
     assert ask_response.status_code == 200
-    assert ask_response.json()["action"]["action_type"] == "answer_then_suggest_drafts"
+    assert ask_response.json()["action"]["action_type"] == "ask_before_persist"
+    assert ask_response.json()["session"]["knowledge_approval_policy"] == "always_ask"
 
     agent_state_response = client.get("/api/agent-state?session_id=chat-3")
     assert agent_state_response.status_code == 200
     agent_state = agent_state_response.json()
-    assert agent_state["current_turn"]["route"] == "answer_then_suggest_drafts"
+    assert agent_state["current_turn"]["route"] == "ask_before_persist"
     assert agent_state["knowledge_queue"][0]["title"] == "Vector Space"
 
     session_response = client.get("/api/sessions/chat-3")
     assert session_response.status_code == 200
     assistant_context = session_response.json()["messages"][-1]["assistant_context"]
-    assert assistant_context["orchestration_plan"]["route"] == "answer_then_suggest_drafts"
+    assert assistant_context["orchestration_plan"]["route"] == "ask_before_persist"
+    assert assistant_context["orchestration_plan"]["authorization"]["status"] == "pending"
+    assert assistant_context["orchestration_plan"]["authorization"]["policy"] == "always_ask"
     assert assistant_context["state_items"][0]["title"] == "Vector Space"
 
 

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { storeToRefs } from 'pinia'
-import type { ProviderCatalogItem, ProviderId } from '../../services/api'
+import type { KnowledgeApprovalPolicy, ProviderCatalogItem, ProviderId } from '../../services/api'
 
 const store = useWorkspaceStore()
 const {
@@ -20,6 +20,7 @@ const modelToAdd = ref('')
 const conversationModelProfileKey = ref('')
 const utilityModelProfileKey = ref('')
 const markdownTheme = ref<'academic' | 'reading' | 'geek'>('academic')
+const knowledgeApprovalPolicy = ref<KnowledgeApprovalPolicy>('agent_decides')
 
 const fallbackProviderCatalog: ProviderCatalogItem[] = [
   {
@@ -216,6 +217,7 @@ const syncDefaultOptions = () => {
   conversationModelProfileKey.value = exactConversation?.key || firstConfigured
   utilityModelProfileKey.value = exactUtility?.key || conversationModelProfileKey.value || firstConfigured
   markdownTheme.value = defaultOptions.value?.markdown_theme || 'academic'
+  knowledgeApprovalPolicy.value = defaultOptions.value?.knowledge_approval_policy || 'agent_decides'
 }
 
 watch(
@@ -231,7 +233,8 @@ watch(
     (configuredModelProfiles.value || []).length,
     defaultOptions.value?.conversation_model?.model,
     defaultOptions.value?.utility_model?.model,
-    defaultOptions.value?.markdown_theme
+    defaultOptions.value?.markdown_theme,
+    defaultOptions.value?.knowledge_approval_policy
   ],
   () => {
     syncDefaultOptions()
@@ -310,6 +313,7 @@ const saveDefaultOptions = async () => {
         model: selectedUtilityProfile.value.model,
       },
       markdown_theme: markdownTheme.value,
+      knowledge_approval_policy: knowledgeApprovalPolicy.value,
     })
   } catch {
     alert('Failed to save default options')
@@ -533,6 +537,20 @@ const saveDefaultOptions = async () => {
                   <option value="geek">Geek (极客工程风)</option>
                 </select>
                 <p class="px-1 font-sans text-[10px] italic text-on-surface-variant/50">Select the typography style for rendering Markdown content.</p>
+              </div>
+
+              <div class="space-y-2">
+                <label class="px-1 font-sans text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/70">Default Knowledge Approval</label>
+                <select
+                  v-model="knowledgeApprovalPolicy"
+                  aria-label="Default knowledge approval policy"
+                  class="w-full rounded-xl border border-outline-variant/20 bg-surface-container-lowest px-4 py-3 font-sans text-[13px] text-on-surface outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/20"
+                >
+                  <option value="agent_decides">Agent decides — low-risk writes run automatically</option>
+                  <option value="always_ask">Always ask — confirm every knowledge write</option>
+                  <option value="full_auto">Full auto — never ask before writing</option>
+                </select>
+                <p class="px-1 font-sans text-[10px] italic text-on-surface-variant/50">New conversations inherit this setting; the composer can override it per conversation.</p>
               </div>
 
               <div class="pt-4 border-t border-outline-variant/10">

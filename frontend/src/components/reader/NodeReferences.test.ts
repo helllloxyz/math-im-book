@@ -194,7 +194,7 @@ describe('NodeReferences', () => {
     expect(conceptLink.element.tagName).toBe('A');
     expect(conceptLink.attributes('target')).toBe('_blank');
     expect(conceptLink.attributes('rel')).toBe('noopener noreferrer');
-    expect(target.searchParams.get('view')).toBe('library');
+    expect(target.searchParams.get('view')).toBe('knowledge');
     expect(target.searchParams.get('session')).toBe('chat-1');
     expect(target.searchParams.get('node')).toBe('vector-space');
   });

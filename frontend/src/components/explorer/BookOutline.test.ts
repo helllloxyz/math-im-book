@@ -23,9 +23,13 @@ describe('BookOutline', () => {
       value: vi.fn(() => 'Linear Algebra'),
       configurable: true,
     });
+    Object.defineProperty(window, 'open', {
+      value: vi.fn(),
+      configurable: true,
+    });
   });
 
-  it('renders knowledge explorer rows and selects a node', async () => {
+  it('renders knowledge explorer rows and opens a node on its own page', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
@@ -55,8 +59,6 @@ describe('BookOutline', () => {
       },
     ] as any;
     store.currentNode = { id: 'vector-space' } as any;
-    const selectSpy = vi.spyOn(store, 'selectNode').mockResolvedValue(undefined);
-
     const wrapper = mount(BookOutline, {
       global: {
         plugins: [pinia],
@@ -67,7 +69,13 @@ describe('BookOutline', () => {
     expect(wrapper.find('[data-explorer-item="vector-space"]').classes()).toContain('tree-item-active');
 
     await wrapper.get('[data-explorer-item="vector-space"]').trigger('click');
-    expect(selectSpy).toHaveBeenCalledWith('vector-space');
+    expect(window.open).toHaveBeenCalledTimes(1);
+    const [href, target, features] = vi.mocked(window.open).mock.calls[0];
+    const url = new URL(String(href));
+    expect(url.searchParams.get('view')).toBe('knowledge');
+    expect(url.searchParams.get('node')).toBe('vector-space');
+    expect(target).toBe('_blank');
+    expect(features).toBe('noopener,noreferrer');
   });
 
   it('updates knowledge icons from the row picker', async () => {

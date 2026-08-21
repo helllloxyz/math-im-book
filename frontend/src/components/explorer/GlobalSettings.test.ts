@@ -215,4 +215,60 @@ describe('GlobalSettings', () => {
       headers: {},
     });
   });
+
+  it('saves the global default knowledge approval policy', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    const updateDefaultOptions = vi.fn().mockResolvedValue(undefined);
+    store.updateDefaultOptions = updateDefaultOptions as any;
+    store.providerCatalog = [
+      {
+        provider_id: 'gemini',
+        provider_type: 'gemini',
+        label: 'Gemini',
+        default_model: 'gemini-2.5-flash',
+        models: ['gemini-2.5-flash'],
+        allow_custom_model: false,
+        requires_base_url: false,
+        default_base_url: '',
+      },
+    ] as any;
+    store.credentials = [
+      {
+        credential_id: 'gemini',
+        provider_id: 'gemini',
+        provider_type: 'gemini',
+        default_model: 'gemini-2.5-flash',
+        models: ['gemini-2.5-flash'],
+        has_headers: false,
+      },
+    ] as any;
+    store.defaultOptions = {
+      conversation_model: {
+        provider_id: 'gemini',
+        provider_type: 'gemini',
+        credential_id: 'gemini',
+        model: 'gemini-2.5-flash',
+      },
+      utility_model: {
+        provider_id: 'gemini',
+        provider_type: 'gemini',
+        credential_id: 'gemini',
+        model: 'gemini-2.5-flash',
+      },
+      markdown_theme: 'academic',
+      knowledge_approval_policy: 'agent_decides',
+    };
+
+    const wrapper = mount(GlobalSettings, { global: { plugins: [pinia] } });
+    await wrapper.get('button[title="Global Settings"]').trigger('click');
+    await wrapper.findAll('button').find((button) => button.text().includes('Default Options'))!.trigger('click');
+    await wrapper.get('select[aria-label="Default knowledge approval policy"]').setValue('full_auto');
+    await wrapper.findAll('button').find((button) => button.text().includes('Save Default Options'))!.trigger('click');
+
+    expect(updateDefaultOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ knowledge_approval_policy: 'full_auto' })
+    );
+  });
 });

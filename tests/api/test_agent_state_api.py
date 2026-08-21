@@ -4,6 +4,7 @@ from math_im_book.api.app import create_app
 from math_im_book.domain.models import (
     AgentStateItem,
     AnswerAnchor,
+    KnowledgeAuthorizationDecision,
     KnowledgeNode,
     KnowledgeDraftCandidate,
     OrchestrationPlan,
@@ -172,6 +173,13 @@ def test_accept_suggested_drafts_queues_selected_drafts_and_persists_ready_links
                                     reason="Reusable concept.",
                                 ),
                             ],
+                            authorization=KnowledgeAuthorizationDecision(
+                                mode="require_approval",
+                                status="pending",
+                                risk_level="medium",
+                                operation="write_knowledge_nodes",
+                                reason="Multiple nodes need approval.",
+                            ),
                         ),
                         state_items=[
                             AgentStateItem(
@@ -228,6 +236,7 @@ def test_accept_suggested_drafts_queues_selected_drafts_and_persists_ready_links
     queued_context = queued_record.messages[0].assistant_context
     assert queued_context.anchors[0].label == "Kernel"
     assert queued_context.state_items[1].state == "queued"
+    assert queued_context.orchestration_plan.authorization.status == "approved"
 
     completed_job = knowledge_jobs.run_job(payload["job_id"])
 
@@ -242,6 +251,70 @@ def test_accept_suggested_drafts_queues_selected_drafts_and_persists_ready_links
     job_response = client.get(f"/api/knowledge-jobs/{payload['job_id']}")
     assert job_response.status_code == 200
     assert job_response.json()["anchors"][0]["node_id"] == "kernel"
+
+
+def test_reject_suggested_drafts_persists_denial_without_writing_nodes(tmp_path) -> None:
+    session_store = FileSessionStore(tmp_path / "sessions")
+    session_store.save_record(
+        SessionRecord(
+            session_id="chat-approval",
+            messages=[
+                SessionMessage(
+                    message_id="msg-approval",
+                    role="assistant",
+                    content="Answer",
+                    created_at="2026-04-18T00:00:00Z",
+                    assistant_context=SessionAssistantContext(
+                        action_type="ask_before_persist",
+                        orchestration_plan=OrchestrationPlan(
+                            route="ask_before_persist",
+                            intent="definition",
+                            persistence_decision="await_approval",
+                            confidence=0.7,
+                            user_visible_summary="发现一个知识缺口。",
+                            candidate_drafts=[
+                                KnowledgeDraftCandidate(
+                                    title="Vector Space",
+                                    draft_type="definition",
+                                    reason="需要可复用定义。",
+                                )
+                            ],
+                            authorization=KnowledgeAuthorizationDecision(
+                                mode="require_approval",
+                                status="pending",
+                                risk_level="medium",
+                                operation="write_knowledge_nodes",
+                                reason="需要用户确认。",
+                            ),
+                        ),
+                        state_items=[
+                            AgentStateItem(
+                                item_id="draft-vector-space",
+                                kind="knowledge_draft",
+                                state="suggested",
+                                title="Vector Space",
+                                reason="需要可复用定义。",
+                            )
+                        ],
+                    ),
+                )
+            ],
+        )
+    )
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    client = TestClient(
+        create_app(repository=repository, session_store=session_store)
+    )
+
+    response = client.post(
+        "/api/sessions/chat-approval/messages/msg-approval/suggested-drafts/reject"
+    )
+
+    assert response.status_code == 200
+    context = response.json()["messages"][0]["assistant_context"]
+    assert context["orchestration_plan"]["authorization"]["status"] == "denied"
+    assert context["state_items"][0]["state"] == "dismissed"
+    assert repository.list_nodes() == []
 
 
 def test_get_session_reconciles_stale_queue_from_ready_knowledge_node(tmp_path) -> None:

@@ -102,6 +102,7 @@ class InMemoryKnowledgeJobRepository:
         source_message_id: str | None = None,
         symbol_constraints: dict[str, str] | None = None,
         symbol_conflicts: list[str] | None = None,
+        run_inline: bool = False,
     ) -> KnowledgeJobRecord:
         job = KnowledgeJobRecord(
             job_id=f"job-{uuid4().hex[:8]}",
@@ -126,7 +127,9 @@ class InMemoryKnowledgeJobRepository:
             len(job.draft_requests) or 1,
             len(job.selected_node_ids),
         )
-        if self.auto_start:
+        if run_inline:
+            self._run_job(job.job_id)
+        elif self.auto_start:
             Thread(target=self._run_job, args=(job.job_id,), daemon=True).start()
         return self.get_job(job.job_id) or job
 

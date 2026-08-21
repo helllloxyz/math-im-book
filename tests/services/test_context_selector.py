@@ -58,3 +58,28 @@ def test_context_selector_limits_chinese_lexical_search_to_knowledge_scope(
     assert selected.active_node_ids == ["uniform-convergence"]
     assert "uniform-continuity" not in selected.summary_node_ids
 
+
+def test_context_selector_exposes_only_scoped_nodes_to_agent_search(tmp_path) -> None:
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    _save_node(
+        repository,
+        node_id="uniform-convergence",
+        title="一致收敛",
+        summary="分析学节点。",
+    )
+    _save_node(
+        repository,
+        node_id="group-action",
+        title="群作用",
+        summary="代数学节点。",
+    )
+    selector = ContextSelector(
+        repository,
+        scope_node_ids_resolver=lambda scope_id: (
+            ["uniform-convergence"] if scope_id == "scope-analysis" else []
+        ),
+    )
+
+    assert [
+        node.id for node in selector.list_scope_nodes("scope-analysis")
+    ] == ["uniform-convergence"]

@@ -70,7 +70,8 @@ describe('api.askStream', () => {
       undefined,
       undefined,
       {},
-      'scope-analysis'
+      'scope-analysis',
+      'full_auto'
     );
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -84,6 +85,7 @@ describe('api.askStream', () => {
       credential_id: 'deepseek',
     });
     expect(body.knowledge_scope_id).toBe('scope-analysis');
+    expect(body.knowledge_approval_policy).toBe('full_auto');
   });
 
   it('parses SSE responses separated by CRLF boundaries', async () => {
@@ -103,6 +105,34 @@ describe('api.askStream', () => {
 
     expect(onChunk).toHaveBeenCalledWith('Hello');
     expect(response.answer.assistant_text).toBe('Hello');
+  });
+
+  it('delivers Agent progress events before answer chunks', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      streamResponse([
+        'event: progress\r\n',
+        'data: {"stage":"searching","label":"正在检索知识索引","detail":"检查 12 个节点","state":"running"}\r\n\r\n',
+        'event: chunk\r\n',
+        'data: {"delta":"Answer"}\r\n\r\n',
+        'event: final\r\n',
+        'data: {"answer":{"assistant_text":"Answer"},"session":{"messages":[],"branch":{"active_node_ids":[],"summary_node_ids":[],"active_symbols":{}}}}\r\n\r\n',
+      ])
+    );
+    const onProgress = vi.fn();
+    const onChunk = vi.fn();
+
+    await api.askStream('Explain this', undefined, undefined, undefined, undefined, {
+      onProgress,
+      onChunk,
+    });
+
+    expect(onProgress).toHaveBeenCalledWith({
+      stage: 'searching',
+      label: '正在检索知识索引',
+      detail: '检查 12 个节点',
+      state: 'running',
+    });
+    expect(onChunk).toHaveBeenCalledWith('Answer');
   });
 });
 
@@ -144,5 +174,23 @@ describe('api explorer client', () => {
       { icon: 'wave' }
     );
     expect(icon.icon).toBe('wave');
+  });
+});
+
+describe('api knowledge approval', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('rejects suggested drafts through the message approval endpoint', async () => {
+    mockAxiosClient.post.mockResolvedValueOnce({
+      data: { session_id: 'chat-1', messages: [] },
+    });
+
+    await api.rejectSuggestedDrafts('chat-1', 'msg-a');
+
+    expect(mockAxiosClient.post).toHaveBeenCalledWith(
+      '/sessions/chat-1/messages/msg-a/suggested-drafts/reject'
+    );
   });
 });

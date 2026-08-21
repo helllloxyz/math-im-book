@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from math_im_book.domain.models import SessionBranchContext
+from math_im_book.domain.models import KnowledgeNode, SessionBranchContext
 from math_im_book.services.symbols import SymbolRegistry
 from math_im_book.storage.markdown import MarkdownKnowledgeRepository
 
@@ -39,6 +39,14 @@ class ContextSelector:
     ) -> None:
         self.repository = repository
         self.scope_node_ids_resolver = scope_node_ids_resolver
+
+    def list_scope_nodes(self, scope_id: str | None) -> list[KnowledgeNode]:
+        """Return the lightweight search universe for an Agent planning turn."""
+        allowed_node_ids = self._allowed_node_ids(scope_id)
+        nodes = self.repository.list_nodes()
+        if allowed_node_ids is None:
+            return nodes
+        return [node for node in nodes if node.id in allowed_node_ids]
 
     def select(
         self,

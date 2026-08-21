@@ -21,7 +21,9 @@ const focusedMessage = computed(() => {
 })
 const focusedPlan = computed(() => focusedMessage.value?.assistant_context.orchestration_plan || null)
 const focusedStateItems = computed(() => focusedMessage.value?.assistant_context.state_items || [])
-const isSuggestedDraftReview = computed(() => focusedPlan.value?.route === 'answer_then_suggest_drafts')
+const isSuggestedDraftReview = computed(() =>
+  ['answer_then_suggest_drafts', 'ask_before_persist'].includes(focusedPlan.value?.route || '')
+)
 const focusedDrafts = computed(() => isSuggestedDraftReview.value ? focusedPlan.value?.candidate_drafts || [] : [])
 const selectedDraftIndexes = ref<number[]>([])
 

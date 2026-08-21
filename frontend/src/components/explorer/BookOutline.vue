@@ -26,6 +26,7 @@ import { storeToRefs } from 'pinia';
 import ExplorerTree from './ExplorerTree.vue';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { ExplorerItemType } from '../../services/api';
+import { buildWorkspaceHref } from '../../services/workspaceNavigation';
 
 const store = useWorkspaceStore();
 const { knowledgeExplorerTree, currentNode, explorerBusy } = storeToRefs(store);
@@ -39,7 +40,15 @@ const runAction = async (action: () => Promise<void>) => {
 
 const handleSelectItem = (itemType: ExplorerItemType, itemId: string) => {
   if (itemType === 'knowledge_node') {
-    store.selectNode(itemId);
+    window.open(
+      buildWorkspaceHref({
+        view: 'knowledge',
+        sessionId: store.currentSession?.session_id,
+        nodeId: itemId,
+      }),
+      '_blank',
+      'noopener,noreferrer'
+    );
   }
 };
 

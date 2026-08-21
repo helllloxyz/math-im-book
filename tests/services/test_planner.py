@@ -221,6 +221,45 @@ def test_planner_includes_user_profile_summary_in_prompt(tmp_path) -> None:
     assert "The user prefers broad overviews before details." in request.system_instruction
 
 
+def test_planner_semantically_searches_the_complete_lightweight_node_index() -> None:
+    nodes = [
+        KnowledgeNode(
+            id=f"node-{index}",
+            title=f"Concept {index}",
+            type="atomic",
+            summary=f"Lightweight searchable summary {index}.",
+            detail=f"Private full detail {index}.",
+            parent_id=None,
+            source="chat:test",
+        )
+        for index in range(15)
+    ]
+    gateway = RecordingPlannerGateway(
+        ProviderResult(
+            output_text=(
+                '{"action_type":"reuse_answer",'
+                '"selected_node_ids":["node-14"],'
+                '"draft_requests":[],'
+                '"user_visible_reason":"The final indexed node is relevant."}'
+            ),
+            provider_name="gemini",
+        )
+    )
+    planner = QuestionPlanner(provider_gateway=gateway)
+
+    action = planner.plan(
+        question="Find the semantically related concept.",
+        nodes=nodes,
+        provider_profile=_provider_profile(),
+    )
+
+    request = gateway.requests[0]
+    assert action.selected_node_ids == ["node-14"]
+    assert "id=node-14; title=Concept 14" in request.user_message
+    assert "Private full detail 14" not in request.user_message
+    assert "semantic search space" in request.system_instruction
+
+
 def _linear_map_node() -> KnowledgeNode:
     return KnowledgeNode(
         id="linear-map",

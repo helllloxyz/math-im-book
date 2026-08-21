@@ -203,4 +203,21 @@ describe('ReaderPanel', () => {
     expect(toggle.attributes('title')).toBe('Restore preview');
     expect(toggle.text()).toContain('close_fullscreen');
   });
+
+  it('uses the full article layout without panel-only controls on a knowledge page', () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    store.currentNode = buildNode() as any;
+
+    const wrapper = mount(ReaderPanel, {
+      props: { pageMode: true },
+      global: { plugins: [pinia], stubs: { NodeReferences: true } },
+    });
+
+    expect(wrapper.attributes('data-knowledge-page')).toBe('true');
+    expect(wrapper.find('[data-reader-action="toggle-width"]').exists()).toBe(false);
+    expect(wrapper.find('[data-reader-action="close"]').exists()).toBe(false);
+    expect(wrapper.get('article').classes()).toContain('max-w-[58rem]');
+  });
 });

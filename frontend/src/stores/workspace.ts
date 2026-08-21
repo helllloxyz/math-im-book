@@ -18,12 +18,14 @@ import {
   type AnswerStyleSummary,
   type StrategyAgentSummary,
   type AgentState,
+  type AgentProgressEvent,
   type DefaultModelSelection,
   type SelectionKnowledgePromptKind,
   type SelectionKnowledgeSource,
   type ExplorerTreeNode,
   type ExplorerScope,
   type ExplorerItemType,
+  type KnowledgeApprovalPolicy,
 } from '../services/api';
 
 const LAST_PROVIDER_PROFILE_STORAGE_KEY = 'math-im-book:last-provider-profile';
@@ -70,14 +72,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const selectedAnswerStyleId = ref<string | null>(null);
   const selectedStrategyAgentId = ref('');
   const selectedKnowledgeScopeId = ref<string | null>(null);
+  const selectedKnowledgeApprovalPolicy = ref<KnowledgeApprovalPolicy>('agent_decides');
   const selectedProviderProfile = ref<ProviderProfile | null>(null);
   const draftQuestion = ref('');
   const newSessionFolderId = ref<string | null>(null);
   const conversationBaseFolderId = ref<string | null>(null);
-  const activeTab = ref<'chat' | 'book' | 'agent'>('chat');
+  const activeTab = ref<'chat' | 'book' | 'agent' | 'knowledge'>('chat');
   const agentState = ref<AgentState | null>(null);
   const agentStateLoading = ref(false);
   const focusedAgentMessageId = ref<string | null>(null);
+  const agentRunSteps = ref<AgentProgressEvent[]>([]);
+  const knowledgeApprovalBusyMessageIds = ref<string[]>([]);
   let knowledgeJobPollToken = 0;
   let standaloneKnowledgeJobPollToken = 0;
   let agentStateRequestToken = 0;
@@ -263,6 +268,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       default_answer_style_id: null,
       strategy_agent_id: selectedStrategyAgentId.value,
       knowledge_scope_id: selectedKnowledgeScopeId.value,
+      knowledge_approval_policy: selectedKnowledgeApprovalPolicy.value,
       branch: {
         active_node_ids: [],
         summary_node_ids: [],
@@ -305,6 +311,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           : message
       ),
     };
+  }
+
+  function applyAgentProgress(event: AgentProgressEvent) {
+    const existingIndex = agentRunSteps.value.findIndex(
+      (step) => step.stage === event.stage
+    );
+    const completedPrevious = agentRunSteps.value.map((step) =>
+      step.state === 'running' && step.stage !== event.stage
+        ? { ...step, state: 'completed' as const }
+        : step
+    );
+    if (existingIndex >= 0) {
+      completedPrevious[existingIndex] = event;
+      agentRunSteps.value = completedPrevious;
+      return;
+    }
+    agentRunSteps.value = [...completedPrevious, event];
   }
 
   async function pollKnowledgeJob(
@@ -548,6 +571,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return strategyAgents.value[0]?.strategy_agent_id || '';
   }
 
+  function defaultKnowledgeApprovalPolicy(): KnowledgeApprovalPolicy {
+    return defaultOptions.value?.knowledge_approval_policy || 'agent_decides';
+  }
+
   function ensureSelectedProviderProfile() {
     const candidate =
       normalizeProviderProfile(selectedProviderProfile.value) ||
@@ -770,6 +797,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         currentSession.value?.strategy_agent_id || defaultStrategyAgentId();
       selectedKnowledgeScopeId.value =
         currentSession.value?.knowledge_scope_id || null;
+      selectedKnowledgeApprovalPolicy.value =
+        currentSession.value?.knowledge_approval_policy || defaultKnowledgeApprovalPolicy();
       selectedAnswerStyleId.value =
         currentSession.value?.default_answer_style_id || null;
       void fetchAgentState(sessionId);
@@ -797,6 +826,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     cancelKnowledgeJobPolling();
     loading.value = true;
     errorMessage.value = null;
+    agentRunSteps.value = [];
     const previousSession = currentSession.value ? { ...currentSession.value } : null;
     currentSession.value = ensureStreamingSession(question);
     const creatingSession = currentSession.value.session_id === undefined;
@@ -814,25 +844,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
               model: selectedProviderProfile.value.model,
             }
           : undefined;
-      const streamCallbacks = { onChunk: appendStreamingChunk };
-      const response = selectedKnowledgeScopeId.value
-        ? await api.askStream(
-            question,
-            currentSession.value?.session_id,
-            conversationModel,
-            selectedAnswerStyleId.value || undefined,
-            strategyAgentId,
-            streamCallbacks,
-            selectedKnowledgeScopeId.value
-          )
-        : await api.askStream(
-            question,
-            currentSession.value?.session_id,
-            conversationModel,
-            selectedAnswerStyleId.value || undefined,
-            strategyAgentId,
-            streamCallbacks
-          );
+      const streamCallbacks = {
+        onChunk: appendStreamingChunk,
+        onProgress: applyAgentProgress,
+      };
+      const response = await api.askStream(
+        question,
+        currentSession.value?.session_id,
+        conversationModel,
+        selectedAnswerStyleId.value || undefined,
+        strategyAgentId,
+        streamCallbacks,
+        selectedKnowledgeScopeId.value,
+        selectedKnowledgeApprovalPolicy.value
+      );
       const latestAssistant = latestAssistantMessage(response.session);
       const responseAnchors =
         response.answer.anchors !== undefined
@@ -849,6 +874,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         response.session.strategy_agent_id || defaultStrategyAgentId();
       selectedKnowledgeScopeId.value =
         response.session.knowledge_scope_id || null;
+      selectedKnowledgeApprovalPolicy.value =
+        response.session.knowledge_approval_policy || defaultKnowledgeApprovalPolicy();
       selectedAnswerStyleId.value =
         response.session.default_answer_style_id || null;
       if (
@@ -901,6 +928,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         selectedProviderProfile.value = { ...session.provider_profile };
       }
       selectedStrategyAgentId.value = session.strategy_agent_id || defaultStrategyAgentId();
+      selectedKnowledgeScopeId.value = session.knowledge_scope_id || null;
+      selectedKnowledgeApprovalPolicy.value =
+        session.knowledge_approval_policy || defaultKnowledgeApprovalPolicy();
       await fetchSessions();
     } catch (error) {
       errorMessage.value = 'Failed to regenerate response. Check your provider settings and try again.';
@@ -925,6 +955,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       providerOptions.value = payload.providers;
       providerCatalog.value = payload.provider_catalog;
       defaultOptions.value = payload.default_options;
+      if (!currentSession.value?.session_id) {
+        selectedKnowledgeApprovalPolicy.value = defaultKnowledgeApprovalPolicy();
+      }
       ensureSelectedProviderProfile();
     } catch (error) {
       console.error('Failed to fetch provider options:', error);
@@ -962,6 +995,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const updated = await api.updateDefaultOptions(payload);
       defaultOptions.value = updated;
+      if (!currentSession.value?.session_id) {
+        selectedKnowledgeApprovalPolicy.value = defaultKnowledgeApprovalPolicy();
+      }
       ensureSelectedProviderProfile();
     } catch (error) {
       console.error('Failed to update default model settings:', error);
@@ -1080,16 +1116,51 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function acceptSuggestedDrafts(messageId: string, draftIndexes: number[]) {
     if (!currentSession.value?.session_id || !draftIndexes.length) return;
     const sessionId = currentSession.value.session_id;
+    knowledgeApprovalBusyMessageIds.value = [
+      ...new Set([...knowledgeApprovalBusyMessageIds.value, messageId]),
+    ];
     try {
       const job = await api.compileSuggestedDrafts(sessionId, messageId, draftIndexes);
       if (currentSession.value?.session_id === sessionId) {
         currentSession.value = applyAnchorsToSession(currentSession.value, messageId, job.anchors);
+        const message = currentSession.value.messages.find(
+          (item) => item.message_id === messageId
+        );
+        if (message?.assistant_context.orchestration_plan?.authorization) {
+          message.assistant_context.orchestration_plan.authorization.status = 'approved';
+        }
       }
       startKnowledgeJobPolling(job.job_id, sessionId, messageId);
       void fetchAgentState(sessionId);
     } catch (error) {
       errorMessage.value = 'Failed to start knowledge note generation.';
       console.error('Failed to accept suggested drafts:', error);
+    } finally {
+      knowledgeApprovalBusyMessageIds.value = knowledgeApprovalBusyMessageIds.value.filter(
+        (item) => item !== messageId
+      );
+    }
+  }
+
+  async function rejectSuggestedDrafts(messageId: string) {
+    if (!currentSession.value?.session_id) return;
+    const sessionId = currentSession.value.session_id;
+    knowledgeApprovalBusyMessageIds.value = [
+      ...new Set([...knowledgeApprovalBusyMessageIds.value, messageId]),
+    ];
+    try {
+      const session = await api.rejectSuggestedDrafts(sessionId, messageId);
+      if (currentSession.value?.session_id === sessionId) {
+        currentSession.value = session;
+      }
+      void fetchAgentState(sessionId);
+    } catch (error) {
+      errorMessage.value = 'Failed to reject knowledge note generation.';
+      console.error('Failed to reject suggested drafts:', error);
+    } finally {
+      knowledgeApprovalBusyMessageIds.value = knowledgeApprovalBusyMessageIds.value.filter(
+        (item) => item !== messageId
+      );
     }
   }
 
@@ -1175,9 +1246,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentSession.value = null;
     currentNode.value = null;
     focusedAgentMessageId.value = null;
+    agentRunSteps.value = [];
     selectedProviderProfile.value = nextProfile;
     selectedStrategyAgentId.value = defaultStrategyAgentId();
     selectedKnowledgeScopeId.value = null;
+    selectedKnowledgeApprovalPolicy.value = defaultKnowledgeApprovalPolicy();
     selectedAnswerStyleId.value = null;
     newSessionFolderId.value = folderId === undefined
       ? conversationBaseFolderId.value
@@ -1239,6 +1312,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectedAnswerStyleId,
     selectedStrategyAgentId,
     selectedKnowledgeScopeId,
+    selectedKnowledgeApprovalPolicy,
     selectedProviderProfile,
     draftQuestion,
     newSessionFolderId,
@@ -1247,6 +1321,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     agentState,
     agentStateLoading,
     focusedAgentMessageId,
+    agentRunSteps,
+    knowledgeApprovalBusyMessageIds,
     fetchOutline,
     fetchSessions,
     fetchSessionExplorer,
@@ -1266,6 +1342,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fetchAgentState,
     openAgentStateForMessage,
     acceptSuggestedDrafts,
+    rejectSuggestedDrafts,
     setDraftQuestion,
     prepareKnowledgeFollowUp,
     generateKnowledgeFromSelection,

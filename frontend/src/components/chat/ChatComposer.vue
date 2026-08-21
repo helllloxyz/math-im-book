@@ -23,6 +23,7 @@ const {
   selectedStrategyAgentId,
   knowledgeScopeOptions,
   selectedKnowledgeScopeId,
+  selectedKnowledgeApprovalPolicy,
   errorMessage,
 } = storeToRefs(store)
 
@@ -127,6 +128,16 @@ const handleKeydown = (event: KeyboardEvent) => {
               >
                 {{ agent.label }}
               </option>
+            </select>
+          </label>
+
+          <label title="Knowledge write approval policy">
+            <span class="material-symbols-outlined" aria-hidden="true">verified_user</span>
+            <span class="sr-only">Approval policy</span>
+            <select v-model="selectedKnowledgeApprovalPolicy" aria-label="Approval policy">
+              <option value="agent_decides">Agent decides</option>
+              <option value="always_ask">Always ask</option>
+              <option value="full_auto">Full auto</option>
             </select>
           </label>
 

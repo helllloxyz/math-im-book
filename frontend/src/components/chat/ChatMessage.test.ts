@@ -289,9 +289,48 @@ describe('ChatMessage anchors', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('Working through it');
+    expect(wrapper.text()).toContain('Agent 正在处理');
+    expect(wrapper.text()).toContain('正在启动任务');
     expect(wrapper.find('[data-thinking-indicator]').exists()).toBe(true);
     expect(wrapper.find('[data-answer-collapse]').exists()).toBe(false);
+  });
+
+  it('shows concrete Agent search and compile progress before the answer', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        isLoading: true,
+        agentSteps: [
+          {
+            stage: 'searching',
+            label: '正在检索当前 Scope 的知识索引',
+            detail: '检查 12 个节点的标题与摘要',
+            state: 'completed',
+          },
+          {
+            stage: 'compiling',
+            label: '正在编译可复用的知识节点',
+            detail: '准备 2 个节点',
+            state: 'running',
+          },
+        ],
+        message: {
+          message_id: 'streaming-assistant',
+          role: 'assistant',
+          content: '',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      },
+    });
+
+    expect(wrapper.get('[data-agent-run-steps]').text()).toContain('检索当前 Scope');
+    expect(wrapper.get('[data-agent-stage="searching"]').classes()).toContain('is-completed');
+    expect(wrapper.get('[data-agent-stage="compiling"]').classes()).toContain('is-running');
+    expect(wrapper.text()).toContain('准备 2 个节点');
   });
 
   it('renders markdown structure in message content', () => {
@@ -379,7 +418,7 @@ describe('ChatMessage anchors', () => {
     expect(readyAnchor.attributes('rel')).toBe('noopener noreferrer');
 
     const target = new URL(readyAnchor.attributes('href')!);
-    expect(target.searchParams.get('view')).toBe('library');
+    expect(target.searchParams.get('view')).toBe('knowledge');
     expect(target.searchParams.get('session')).toBe('chat-1');
     expect(target.searchParams.get('node')).toBe('node-42');
   });
@@ -503,7 +542,119 @@ describe('ChatMessage anchors', () => {
     expect(target.searchParams.get('message')).toBe('msg_assistant_agent_summary');
   });
 
-  it('renders referenced knowledge as concise expandable note links', async () => {
+  it('shows a knowledge gap approval card and emits approve or reject actions', async () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        sessionId: 'chat-1',
+        message: {
+          message_id: 'msg-gap',
+          role: 'assistant',
+          content: '先回答当前问题。',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+            orchestration_plan: {
+              route: 'ask_before_persist',
+              intent: 'definition',
+              persistence_decision: 'await_approval',
+              confidence: 0.72,
+              user_visible_summary: '需要补充两个可复用知识点。',
+              detected_scope_ids: [],
+              profile_layers_used: [],
+              candidate_drafts: [
+                {
+                  title: '一致收敛',
+                  draft_type: 'missing_definition',
+                  reason: '需要明确判断标准。',
+                },
+                {
+                  title: '逐项积分条件',
+                  draft_type: 'missing_bridge',
+                  reason: '需要连接定理。',
+                },
+              ],
+              strategy_mode: 'top-down',
+              strategy_reason: '先构建知识结构。',
+              knowledge_scope_label: '数学分析',
+              authorization: {
+                policy: 'always_ask',
+                mode: 'require_approval',
+                status: 'pending',
+                risk_level: 'medium',
+                operation: 'write_knowledge_nodes',
+                reason: '计划一次写入 2 个知识节点，需要你确认范围。',
+              },
+            },
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      },
+      global: { plugins: [createPinia()] },
+    });
+
+    const card = wrapper.get('[data-knowledge-gap-card]');
+    expect(card.text()).toContain('发现知识缺口，需要授权');
+    expect(card.text()).toContain('一致收敛');
+    expect(card.text()).toContain('逐项积分条件');
+    expect(card.text()).toContain('写入：数学分析');
+    expect(card.text()).toContain('Always Ask · 等待确认');
+
+    await wrapper.get('[data-approve-knowledge]').trigger('click');
+    expect(wrapper.emitted('approve-knowledge')?.[0]).toEqual(['msg-gap', [0, 1]]);
+
+    await wrapper.get('[data-reject-knowledge]').trigger('click');
+    expect(wrapper.emitted('reject-knowledge')?.[0]).toEqual(['msg-gap']);
+  });
+
+  it('shows full-auto knowledge writes as audited actions without approval buttons', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: {
+          message_id: 'msg-auto',
+          role: 'assistant',
+          content: '已补充知识并回答。',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+            orchestration_plan: {
+              route: 'draft_first_then_answer',
+              intent: 'definition',
+              persistence_decision: 'persist_first',
+              confidence: 0.4,
+              user_visible_summary: '补充知识。',
+              detected_scope_ids: [],
+              profile_layers_used: [],
+              candidate_drafts: [
+                { title: '一致收敛', draft_type: 'definition', reason: '需要定义。' },
+              ],
+              strategy_mode: 'top-down',
+              strategy_reason: '先编译知识。',
+              knowledge_scope_label: '数学分析',
+              authorization: {
+                policy: 'full_auto',
+                mode: 'auto_execute',
+                status: 'auto_approved',
+                risk_level: 'low',
+                operation: 'write_knowledge_nodes',
+                reason: '当前对话使用完全免审批模式，知识补充将自动执行。',
+              },
+            },
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      },
+    });
+
+    expect(wrapper.get('[data-knowledge-gap-card]').text()).toContain('Full Auto · 已自动执行');
+    expect(wrapper.find('[data-approve-knowledge]').exists()).toBe(false);
+    expect(wrapper.find('[data-reject-knowledge]').exists()).toBe(false);
+  });
+
+  it('renders referenced knowledge as concise links to separate note pages', () => {
     const wrapper = mount(ChatMessage, {
       props: {
         message: {
@@ -527,16 +678,20 @@ describe('ChatMessage anchors', () => {
             status: 'ready',
           },
         ],
+        sessionId: 'chat-1',
       },
     });
 
     const citation = wrapper.get('[data-citation-node-id="uniform-convergence"]');
     expect(citation.text()).toContain('一致收敛');
     expect(citation.text()).toContain('统一控制');
-
-    await citation.trigger('click');
-
-    expect(wrapper.emitted('open-node')).toEqual([['uniform-convergence']]);
+    expect(citation.element.tagName).toBe('A');
+    expect(citation.attributes('target')).toBe('_blank');
+    expect(citation.attributes('rel')).toBe('noopener noreferrer');
+    const target = new URL(citation.attributes('href')!);
+    expect(target.searchParams.get('view')).toBe('knowledge');
+    expect(target.searchParams.get('session')).toBe('chat-1');
+    expect(target.searchParams.get('node')).toBe('uniform-convergence');
   });
 
   it('uses compact spacing for assistant controls, anchors, and agent feedback', () => {

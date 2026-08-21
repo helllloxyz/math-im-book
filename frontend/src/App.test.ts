@@ -5,8 +5,8 @@ import { createPinia, setActivePinia } from 'pinia';
 vi.mock('./components/chat/ChatMessage.vue', () => ({
   default: {
     name: 'ChatMessage',
-    props: ['message', 'assistantName', 'canRegenerate', 'isLoading', 'sessionId'],
-    emits: ['regenerate'],
+    props: ['message', 'assistantName', 'canRegenerate', 'isLoading', 'sessionId', 'agentSteps', 'approvalBusy'],
+    emits: ['regenerate', 'approve-knowledge', 'reject-knowledge'],
     template: `
       <div
         data-stub="chat-message"
@@ -42,13 +42,17 @@ vi.mock('./components/explorer/GlobalSettings.vue', () => ({
 vi.mock('./components/reader/ReaderPanel.vue', () => ({
   default: {
     name: 'ReaderPanel',
-    props: ['isExpanded'],
+    props: {
+      isExpanded: Boolean,
+      pageMode: Boolean,
+    },
     emits: ['toggle-expanded', 'close'],
     template: `
       <div>
         <button
           data-stub="reader-panel"
           :data-expanded="isExpanded ? 'true' : 'false'"
+          :data-page-mode="pageMode ? 'true' : 'false'"
           @click="$emit('toggle-expanded')"
         >
           Reader
@@ -310,16 +314,16 @@ describe('App new session flow', () => {
     expect(regenerateSpy).toHaveBeenCalledWith('msg_assistant_2');
   });
 
-  it('loads a linked library node in its own workspace view', async () => {
+  it('loads a linked knowledge node on its dedicated page', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
     mockStartupFetches(store);
-    window.history.replaceState({}, '', '/?view=library&session=chat-1&node=node-42');
+    window.history.replaceState({}, '', '/?view=knowledge&session=chat-1&node=node-42');
     const selectSessionSpy = vi.spyOn(store, 'selectSession').mockResolvedValue(undefined);
     const selectNodeSpy = vi.spyOn(store, 'selectNode').mockResolvedValue(undefined);
 
-    mount(App, {
+    const wrapper = mount(App, {
       global: {
         plugins: [pinia],
       },
@@ -327,7 +331,8 @@ describe('App new session flow', () => {
 
     await vi.waitFor(() => expect(selectNodeSpy).toHaveBeenCalledWith('node-42'));
     expect(selectSessionSpy).toHaveBeenCalledWith('chat-1');
-    expect(store.activeTab).toBe('book');
+    expect(store.activeTab).toBe('knowledge');
+    expect(wrapper.get('[data-stub="reader-panel"]').attributes('data-page-mode')).toBe('true');
   });
 
   it('creates a linked fork in the new workspace and replaces the one-shot URL', async () => {
@@ -651,7 +656,7 @@ describe('App new session flow', () => {
     expect(assistantMessages[1].attributes('data-loading')).toBe('true');
   });
 
-  it('toggles the right reader panel width from the reader action rail', async () => {
+  it('does not show a side reader merely because a node exists in chat state', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
@@ -664,37 +669,21 @@ describe('App new session flow', () => {
       },
     });
 
-    const panel = () => wrapper.get('[data-reader-panel-shell]');
-    const reader = () => wrapper.get('[data-stub="reader-panel"]');
-
-    expect(panel().classes()).not.toContain('expanded');
-    expect(reader().attributes('data-expanded')).toBe('false');
-
-    await reader().trigger('click');
-
-    expect(panel().classes()).toContain('expanded');
-    expect(reader().attributes('data-expanded')).toBe('true');
-
-    await reader().trigger('click');
-
-    expect(panel().classes()).not.toContain('expanded');
-    expect(reader().attributes('data-expanded')).toBe('false');
+    expect(wrapper.find('[data-reader-panel-shell]').exists()).toBe(false);
+    expect(wrapper.find('[data-stub="reader-panel"]').exists()).toBe(false);
   });
 
-  it('keeps the reader out of the workspace until a note is selected and lets it close', async () => {
+  it('renders the node reader only in the dedicated knowledge view', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkspaceStore();
     mockStartupFetches(store);
 
-    const wrapper = mount(App, { global: { plugins: [pinia] } });
-    expect(wrapper.find('[data-reader-panel-shell]').exists()).toBe(false);
-
     store.currentNode = { id: 'node-1', title: 'A note' } as any;
-    await wrapper.vm.$nextTick();
-    expect(wrapper.find('[data-reader-panel-shell]').exists()).toBe(true);
+    store.activeTab = 'knowledge';
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
 
-    await wrapper.get('[data-stub="close-reader"]').trigger('click');
-    expect(store.currentNode).toBeNull();
+    expect(wrapper.find('[data-reader-panel-shell]').exists()).toBe(false);
+    expect(wrapper.get('[data-stub="reader-panel"]').attributes('data-page-mode')).toBe('true');
   });
 });

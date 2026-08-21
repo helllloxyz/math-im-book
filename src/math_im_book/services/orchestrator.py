@@ -5,17 +5,20 @@ from pathlib import Path
 from typing import Callable
 
 from math_im_book.domain.models import (
+    AgentAction,
     AgentStateItem,
     OrchestrationPlan,
     AskResult,
     AnswerAnchor,
     AnswerPayload,
     KnowledgeNode,
+    PendingDraftRequest,
     ProviderProfile,
     SymbolContext,
     SessionBranchContext,
 )
 from math_im_book.services.context_selector import ContextSelector
+from math_im_book.services.authorization import KnowledgeAuthorizationPolicy
 from math_im_book.services.knowledge_jobs import InMemoryKnowledgeJobRepository
 from math_im_book.services.planner import QuestionPlanner
 from math_im_book.services.prompt_compiler import AnswerPromptCompiler
@@ -41,6 +44,7 @@ class KnowledgeOrchestrator:
         strategy_agent_repository: FileStrategyAgentRepository | None = None,
         prompt_compiler: AnswerPromptCompiler | None = None,
         user_profile_repository: FileUserProfileRepository | None = None,
+        authorization_policy: KnowledgeAuthorizationPolicy | None = None,
     ) -> None:
         self.repository = repository
         self.planner = planner
@@ -53,6 +57,11 @@ class KnowledgeOrchestrator:
             knowledge_job_repository
             or InMemoryKnowledgeJobRepository(repository)
         )
+        if (
+            self.provider_gateway is not None
+            and self.knowledge_job_repository.provider_gateway is None
+        ):
+            self.knowledge_job_repository.provider_gateway = self.provider_gateway
         self.answer_style_repository = (
             answer_style_repository
             or FileAnswerStyleRepository(Path("data/config/answer_styles"))
@@ -63,6 +72,7 @@ class KnowledgeOrchestrator:
         )
         self.prompt_compiler = prompt_compiler or AnswerPromptCompiler()
         self.user_profile_repository = user_profile_repository or FileUserProfileRepository()
+        self.authorization_policy = authorization_policy or KnowledgeAuthorizationPolicy()
 
     def answer(
         self,
@@ -73,13 +83,20 @@ class KnowledgeOrchestrator:
         answer_style_id: str | None = None,
         strategy_agent_id: str | None = None,
         stream_callback: Callable[[str], None] | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
+        knowledge_approval_policy: str = "agent_decides",
     ) -> AskResult:
         clear_provider_response()
+        self._emit_progress(
+            progress_callback,
+            stage="planning",
+            label="正在理解问题并确定处理方式",
+        )
         selected_branch_context = self._selected_branch_context(question, branch_context)
         answer_style_instructions = self._answer_style_instructions(answer_style_id)
         summary_nodes: list[KnowledgeNode] = []
         if selected_branch_context is not None:
-            nodes = [
+            context_nodes = [
                 self.repository.get_node(node_id)
                 for node_id in selected_branch_context.active_node_ids
             ]
@@ -88,10 +105,17 @@ class KnowledgeOrchestrator:
                 for node_id in selected_branch_context.summary_node_ids
             ]
         else:
-            nodes = self.repository.list_nodes()
+            context_nodes = self.repository.list_nodes()
+        planner_nodes = self._planner_candidate_nodes(selected_branch_context)
+        self._emit_progress(
+            progress_callback,
+            stage="searching",
+            label="正在检索当前 Scope 的知识索引",
+            detail=f"检查 {len(planner_nodes)} 个节点的标题与摘要",
+        )
         action = self.planner.plan(
             question=question,
-            nodes=nodes,
+            nodes=planner_nodes,
             session_id=session_id,
             provider_profile=provider_profile,
             branch_symbols=(
@@ -100,13 +124,18 @@ class KnowledgeOrchestrator:
                 else {}
             ),
         )
+        self._emit_progress(
+            progress_callback,
+            stage="organizing",
+            label="已整理本轮知识上下文",
+            detail=f"选用 {len(action.selected_node_ids)} 个已有知识节点",
+        )
         plan = action.orchestration_plan
         strategy_mode, strategy_reason = self._resolve_strategy_mode(
             question,
             strategy_agent_id,
             plan=plan,
         )
-        strategy_instructions = self._strategy_instructions(strategy_mode)
         if plan is not None:
             plan.strategy_mode = strategy_mode
             plan.strategy_reason = strategy_reason
@@ -115,6 +144,15 @@ class KnowledgeOrchestrator:
                 if selected_branch_context is not None
                 else None
             )
+            plan.authorization = self.authorization_policy.decide(
+                plan=plan,
+                strategy_mode=strategy_mode,
+                repository=self.repository,
+                approval_policy=knowledge_approval_policy,
+            )
+        action = self._apply_knowledge_authorization(action, strategy_mode)
+        plan = action.orchestration_plan
+        strategy_instructions = self._strategy_instructions(strategy_mode)
         selected_nodes = [self.repository.get_node(node_id) for node_id in action.selected_node_ids]
         branch_symbols = (
             dict(selected_branch_context.active_symbols)
@@ -127,7 +165,7 @@ class KnowledgeOrchestrator:
             include_local_symbols=True,
         )
         scope_symbol_context = self.symbol_registry.build_context(
-            self._merge_unique_nodes(nodes, summary_nodes),
+            self._merge_unique_nodes(context_nodes, summary_nodes),
             branch_symbols=branch_symbols,
         )
         detail_symbol_guidance = self._symbol_guidance_text(
@@ -145,6 +183,7 @@ class KnowledgeOrchestrator:
             detail = summary
             detail = self._detail_with_summary_context(detail, summary_nodes)
             detail = self._detail_with_symbol_guidance(detail, detail_symbol_guidance)
+            self._emit_answering_progress(progress_callback)
             assistant_text = self._render_answer(
                 question=question,
                 summary=summary,
@@ -181,6 +220,7 @@ class KnowledgeOrchestrator:
             detail = self._reuse_detail(selected_nodes)
             detail = self._detail_with_summary_context(detail, summary_nodes)
             detail = self._detail_with_symbol_guidance(detail, detail_symbol_guidance)
+            self._emit_answering_progress(progress_callback)
             assistant_text = self._render_answer(
                 question=question,
                 summary=summary,
@@ -220,10 +260,16 @@ class KnowledgeOrchestrator:
 
         if action.action_type == "expand_with_drafts" and action.draft_requests:
             draft_title = action.draft_requests[0].title
-            answer_summary = f"{draft_title}: compilation queued."
+            self._emit_progress(
+                progress_callback,
+                stage="compiling",
+                label="正在编译可复用的知识节点",
+                detail=f"准备 {len(action.draft_requests)} 个节点",
+            )
+            answer_summary = f"{draft_title}: knowledge prepared."
             answer_detail = (
                 action.user_visible_reason
-                or f"A knowledge compilation job is running for {draft_title}."
+                or f"Knowledge was compiled for {draft_title} before answering."
             )
             if selected_nodes:
                 answer_detail += " Related knowledge: " + ", ".join(
@@ -256,7 +302,37 @@ class KnowledgeOrchestrator:
                 session_id=session_id,
                 symbol_constraints=symbol_context.symbols,
                 symbol_conflicts=scope_symbol_context.conflicts,
+                run_inline=True,
             )
+            draft_anchors = list(job.anchors)
+            compiled_nodes = [
+                self.repository.get_node(anchor.node_id)
+                for anchor in draft_anchors
+                if anchor.status == "ready" and anchor.node_id is not None
+            ]
+            answer_nodes = self._merge_unique_nodes(selected_nodes, compiled_nodes)
+            if compiled_nodes:
+                answer_detail += " Compiled knowledge: " + ", ".join(
+                    node.title for node in compiled_nodes
+                ) + "."
+            elif job.error_message:
+                answer_detail += f" Knowledge compilation failed: {job.error_message}."
+            self._emit_progress(
+                progress_callback,
+                stage="compiling",
+                label=(
+                    "知识节点已编译完成"
+                    if compiled_nodes
+                    else "知识节点编译未完成，将使用现有上下文"
+                ),
+                detail=(
+                    f"生成 {len(compiled_nodes)} 个可引用节点"
+                    if compiled_nodes
+                    else job.error_message
+                ),
+                state="completed" if compiled_nodes else "failed",
+            )
+            self._emit_answering_progress(progress_callback)
             assistant_text = self._render_answer(
                 question=question,
                 summary=answer_summary,
@@ -266,7 +342,7 @@ class KnowledgeOrchestrator:
                 session_id=session_id,
                 provider_profile=provider_profile,
                 strategy_instructions=strategy_instructions,
-                knowledge_references=selected_nodes,
+                knowledge_references=answer_nodes,
                 answer_style_instructions=answer_style_instructions,
                 stream_callback=stream_callback,
             )
@@ -275,7 +351,7 @@ class KnowledgeOrchestrator:
                 answer=AnswerPayload(
                     summary=answer_summary,
                     detail=answer_detail,
-                    references=list(action.selected_node_ids),
+                    references=[node.id for node in answer_nodes],
                     anchors=draft_anchors,
                     knowledge_job_id=job.job_id,
                     symbols=symbol_context.symbols,
@@ -283,7 +359,7 @@ class KnowledgeOrchestrator:
                     assistant_text=assistant_text,
                 ),
                 drafts=action.draft_requests,
-                created_node_ids=[],
+                created_node_ids=[node.id for node in compiled_nodes],
                 branch_context=selected_branch_context,
                 orchestration_plan=plan,
                 state_items=self._state_items_for_plan(plan),
@@ -293,6 +369,7 @@ class KnowledgeOrchestrator:
         detail = summary
         detail = self._detail_with_summary_context(detail, summary_nodes)
         detail = self._detail_with_symbol_guidance(detail, detail_symbol_guidance)
+        self._emit_answering_progress(progress_callback)
         assistant_text = self._render_answer(
             question=question,
             summary=summary,
@@ -336,6 +413,92 @@ class KnowledgeOrchestrator:
         return self.context_selector.select(question, branch_context)
 
     @staticmethod
+    def _emit_progress(
+        callback: Callable[[dict[str, object]], None] | None,
+        *,
+        stage: str,
+        label: str,
+        detail: str | None = None,
+        state: str = "running",
+    ) -> None:
+        if callback is None:
+            return
+        event: dict[str, object] = {
+            "stage": stage,
+            "label": label,
+            "state": state,
+        }
+        if detail:
+            event["detail"] = detail
+        callback(event)
+
+    @classmethod
+    def _emit_answering_progress(
+        cls,
+        callback: Callable[[dict[str, object]], None] | None,
+    ) -> None:
+        cls._emit_progress(
+            callback,
+            stage="answering",
+            label="知识上下文已就绪，正在生成回答",
+        )
+
+    def _planner_candidate_nodes(
+        self,
+        branch_context: SessionBranchContext | None,
+    ) -> list[KnowledgeNode]:
+        """Expose the scoped title/summary index to the planning Agent.
+
+        Lexical selection still supplies fast conversational context, while the
+        planner can now search the complete selected Scope by meaning instead of
+        being limited to literal matches from the first retrieval pass.
+        """
+        scope_id = branch_context.knowledge_scope_id if branch_context else None
+        if self.context_selector is not None:
+            return self.context_selector.list_scope_nodes(scope_id)
+        return self.repository.list_nodes()
+
+    @staticmethod
+    def _apply_knowledge_authorization(
+        action: AgentAction,
+        strategy_mode: str,
+    ) -> AgentAction:
+        """Apply the write policy before turning candidate gaps into durable nodes."""
+        plan = action.orchestration_plan
+        if plan is None or not plan.candidate_drafts:
+            return action
+        if plan.authorization.mode == "require_approval":
+            plan.route = "ask_before_persist"
+            plan.persistence_decision = "await_approval"
+            return AgentAction(
+                action_type="ask_before_persist",
+                selected_node_ids=list(action.selected_node_ids),
+                user_visible_reason=action.user_visible_reason,
+                orchestration_plan=plan,
+            )
+        if (
+            strategy_mode != "top-down"
+            or action.action_type != "answer_then_suggest_drafts"
+        ):
+            return action
+        plan.route = "draft_first_then_answer"
+        plan.persistence_decision = "persist_first"
+        return AgentAction(
+            action_type="expand_with_drafts",
+            selected_node_ids=list(action.selected_node_ids),
+            draft_requests=[
+                PendingDraftRequest(
+                    title=candidate.title,
+                    draft_type=candidate.draft_type,
+                    reason=candidate.reason,
+                )
+                for candidate in plan.candidate_drafts
+            ],
+            user_visible_reason=action.user_visible_reason,
+            orchestration_plan=plan,
+        )
+
+    @staticmethod
     def _detail_with_summary_context(
         detail: str,
         summary_nodes: list[KnowledgeNode],
@@ -356,9 +519,13 @@ class KnowledgeOrchestrator:
 
     @staticmethod
     def _reuse_detail(nodes: list[KnowledgeNode]) -> str:
-        if len(nodes) == 1:
-            return nodes[0].detail
-        return "\n\n".join(f"## {node.title}\n\n{node.detail}" for node in nodes)
+        if not nodes:
+            return ""
+        return (
+            "Use the concise reusable knowledge references below as navigation "
+            "anchors. Their full note details remain available to the user on "
+            "separate knowledge pages and are intentionally not included here."
+        )
 
     @staticmethod
     def _slugify(text: str) -> str:

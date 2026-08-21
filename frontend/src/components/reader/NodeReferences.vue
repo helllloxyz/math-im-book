@@ -27,7 +27,7 @@ const conceptItems = computed(() => {
     secondary: formatNodeSecondary(reference),
     direction: 'Depends on',
     href: buildWorkspaceHref({
-      view: 'library',
+      view: 'knowledge',
       sessionId: store.currentSession?.session_id,
       nodeId: reference.node_id,
     }),
@@ -40,7 +40,7 @@ const conceptItems = computed(() => {
     secondary: formatNodeSecondary(reference),
     direction: 'Referenced by',
     href: buildWorkspaceHref({
-      view: 'library',
+      view: 'knowledge',
       sessionId: store.currentSession?.session_id,
       nodeId: reference.node_id,
     }),

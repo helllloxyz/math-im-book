@@ -1,4 +1,4 @@
-export type WorkspaceView = 'conversation' | 'details' | 'fork' | 'library';
+export type WorkspaceView = 'conversation' | 'details' | 'fork' | 'library' | 'knowledge';
 
 export interface WorkspaceTarget {
   view?: WorkspaceView;
@@ -34,7 +34,7 @@ export function buildWorkspaceHref(
 export function readWorkspaceTarget(href = currentLocationHref()): WorkspaceTarget {
   const url = new URL(href);
   const rawView = url.searchParams.get('view');
-  const view = ['conversation', 'details', 'fork', 'library'].includes(rawView || '')
+  const view = ['conversation', 'details', 'fork', 'library', 'knowledge'].includes(rawView || '')
     ? (rawView as WorkspaceView)
     : undefined;
 

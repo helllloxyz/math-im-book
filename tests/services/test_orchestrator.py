@@ -159,8 +159,10 @@ def test_orchestrator_reuses_multiple_selected_nodes_in_answer(tmp_path) -> None
         "vector-space",
         "linear-combination",
     ]
-    assert "## Vector Space" in answer_request.system_instruction
-    assert "## Linear Combination" in answer_request.system_instruction
+    assert "[K1] Vector Space:" in answer_request.system_instruction
+    assert "[K2] Linear Combination:" in answer_request.system_instruction
+    assert "A vector space is a set with compatible" not in answer_request.system_instruction
+    assert "a_1 v_1" not in answer_request.system_instruction
 
 
 def test_orchestrator_uses_top_down_strategy_prefix_by_default(tmp_path) -> None:
@@ -461,7 +463,7 @@ def test_orchestrator_prompt_contract_includes_knowledge_system_rules(tmp_path) 
     assert "Preserve symbol meanings from the Symbols block." in request.system_instruction
 
 
-def test_orchestrator_queues_knowledge_job_instead_of_persisting_new_node(
+def test_orchestrator_compiles_required_knowledge_before_answering(
     tmp_path,
 ) -> None:
     repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
@@ -484,12 +486,24 @@ def test_orchestrator_queues_knowledge_job_instead_of_persisting_new_node(
         [
             ProviderResult(
                 output_text=(
-                    '{"action_type":"expand_with_drafts",'
+                    '{"route":"draft_first_then_answer",'
+                    '"intent":"definition",'
+                    '"persistence_decision":"persist_first",'
+                    '"confidence":0.91,'
                     '"selected_node_ids":["vector-space"],'
-                    '"draft_requests":[{"title":"Linear Map",'
+                    '"detected_scope_ids":[],"profile_layers_used":[],'
+                    '"profile_context_summary":null,'
+                    '"candidate_drafts":[{"title":"Linear Map",'
                     '"draft_type":"missing_definition",'
                     '"reason":"Need a definition node."}],'
-                    '"user_visible_reason":"Existing knowledge is insufficient."}'
+                    '"user_visible_summary":"Existing knowledge is insufficient."}'
+                ),
+                provider_name="gemini",
+            ),
+            ProviderResult(
+                output_text=(
+                    '{"summary":"A linear map preserves vector operations.",'
+                    '"detail":"A reusable definition of a linear map."}'
                 ),
                 provider_name="gemini",
             ),
@@ -503,6 +517,7 @@ def test_orchestrator_queues_knowledge_job_instead_of_persisting_new_node(
         knowledge_job_repository=knowledge_jobs,
     )
 
+    progress_events: list[dict[str, object]] = []
     result = orchestrator.answer(
         "Explain what a linear map is.",
         provider_profile=_provider_profile(),
@@ -510,26 +525,35 @@ def test_orchestrator_queues_knowledge_job_instead_of_persisting_new_node(
             active_node_ids=["vector-space"],
             active_symbols={"T": "linear operator on V"},
         ),
+        progress_callback=progress_events.append,
     )
 
     assert result.action.action_type == "expand_with_drafts"
     assert [draft.draft_type for draft in result.drafts] == ["missing_definition"]
-    assert result.created_node_ids == []
+    assert result.created_node_ids == ["linear-map"]
     assert [anchor.label for anchor in result.answer.anchors] == ["Linear Map"]
-    assert result.answer.anchors[0].status == "pending"
+    assert result.answer.anchors[0].status == "ready"
     assert result.answer.knowledge_job_id is not None
     job = knowledge_jobs.get_job(result.answer.knowledge_job_id)
-    assert job.status == "queued"
+    assert job.status == "completed"
     assert job.symbol_constraints == {
         "T": "linear operator on V",
         "V": "vector space",
     }
 
-    with pytest.raises(FileNotFoundError):
-        repository.get_node("linear-map")
+    assert repository.get_node("linear-map").summary.startswith("A linear map")
+    assert [event["stage"] for event in progress_events] == [
+        "planning",
+        "searching",
+        "organizing",
+        "compiling",
+        "compiling",
+        "answering",
+    ]
+    assert progress_events[-2]["state"] == "completed"
 
 
-def test_orchestrator_queues_all_draft_first_candidates(tmp_path) -> None:
+def test_orchestrator_requests_approval_for_multiple_draft_candidates(tmp_path) -> None:
     repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
     knowledge_jobs = InMemoryKnowledgeJobRepository(repository, auto_start=False)
     gateway = SequenceProviderGateway(
@@ -551,7 +575,7 @@ def test_orchestrator_queues_all_draft_first_candidates(tmp_path) -> None:
                 ),
                 provider_name="gemini",
             ),
-            ProviderResult(output_text="Queued answer", provider_name="gemini"),
+            ProviderResult(output_text="Answer while approval is pending.", provider_name="gemini"),
         ]
     )
     orchestrator = KnowledgeOrchestrator(
@@ -566,13 +590,14 @@ def test_orchestrator_queues_all_draft_first_candidates(tmp_path) -> None:
         provider_profile=_provider_profile(),
     )
 
-    assert result.action.action_type == "expand_with_drafts"
-    assert [anchor.label for anchor in result.answer.anchors] == ["Linear Map", "Kernel"]
-    assert [anchor.status for anchor in result.answer.anchors] == ["pending", "pending"]
-    assert result.answer.knowledge_job_id is not None
-    job = knowledge_jobs.get_job(result.answer.knowledge_job_id)
-    assert [draft.title for draft in job.draft_requests] == ["Linear Map", "Kernel"]
-    assert [anchor.label for anchor in job.anchors] == ["Linear Map", "Kernel"]
+    assert result.action.action_type == "ask_before_persist"
+    assert result.answer.assistant_text == "Answer while approval is pending."
+    assert result.answer.knowledge_job_id is None
+    assert result.created_node_ids == []
+    assert result.orchestration_plan.route == "ask_before_persist"
+    assert result.orchestration_plan.authorization.status == "pending"
+    assert result.orchestration_plan.authorization.risk_level == "medium"
+    assert knowledge_jobs.list_jobs() == []
 
 
 def test_orchestrator_renders_empty_reuse_answer_without_knowledge_job(tmp_path) -> None:
@@ -611,7 +636,7 @@ def test_orchestrator_renders_empty_reuse_answer_without_knowledge_job(tmp_path)
     assert result.answer.knowledge_job_id is None
 
 
-def test_orchestrator_suggests_drafts_without_starting_knowledge_job(tmp_path) -> None:
+def test_raw_mode_suggests_drafts_without_starting_knowledge_job(tmp_path) -> None:
     repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
     knowledge_jobs = InMemoryKnowledgeJobRepository(repository, auto_start=False)
     gateway = SequenceProviderGateway(
@@ -643,16 +668,78 @@ def test_orchestrator_suggests_drafts_without_starting_knowledge_job(tmp_path) -
         knowledge_job_repository=knowledge_jobs,
     )
 
-    result = orchestrator.answer("线性代数", provider_profile=_provider_profile())
+    result = orchestrator.answer(
+        "线性代数",
+        provider_profile=_provider_profile(),
+        strategy_agent_id="raw",
+    )
 
-    assert result.action.action_type == "answer_then_suggest_drafts"
+    assert result.action.action_type == "ask_before_persist"
     assert result.answer.knowledge_job_id is None
     assert result.answer.anchors == []
     assert result.answer.assistant_text == "线性代数研究线性结构。"
     assert result.state_items[0].state == "suggested"
     assert result.state_items[0].title == "Vector Space"
-    assert result.orchestration_plan.route == "answer_then_suggest_drafts"
+    assert result.orchestration_plan.route == "ask_before_persist"
     assert result.orchestration_plan.detected_scope_ids == ["linear-algebra"]
+    assert result.orchestration_plan.authorization.status == "pending"
+
+
+def test_top_down_promotes_suggested_drafts_to_compile_first(tmp_path) -> None:
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    knowledge_jobs = InMemoryKnowledgeJobRepository(repository, auto_start=False)
+    gateway = SequenceProviderGateway(
+        [
+            ProviderResult(
+                output_text=(
+                    '{"route":"answer_then_suggest_drafts",'
+                    '"intent":"broad_overview",'
+                    '"persistence_decision":"suggest_drafts",'
+                    '"confidence":0.82,'
+                    '"selected_node_ids":[],'
+                    '"detected_scope_ids":["linear-algebra"],'
+                    '"profile_layers_used":[],'
+                    '"profile_context_summary":null,'
+                    '"candidate_drafts":[{"title":"Vector Space",'
+                    '"draft_type":"definition",'
+                    '"reason":"Foundational reusable concept."}],'
+                    '"user_visible_summary":"先整理基础知识点再回答。"}'
+                ),
+                provider_name="gemini",
+            ),
+            ProviderResult(
+                output_text=(
+                    '{"summary":"向量空间支持加法与数乘。",'
+                    '"detail":"向量空间的完整可复用定义。"}'
+                ),
+                provider_name="gemini",
+            ),
+            ProviderResult(
+                output_text="线性代数以向量空间为基础。[K1]",
+                provider_name="gemini",
+            ),
+        ]
+    )
+    orchestrator = KnowledgeOrchestrator(
+        repository=repository,
+        planner=QuestionPlanner(provider_gateway=gateway),
+        provider_gateway=gateway,
+        knowledge_job_repository=knowledge_jobs,
+    )
+
+    result = orchestrator.answer(
+        "线性代数的整体结构是什么？",
+        provider_profile=_provider_profile(),
+        strategy_agent_id="top-down",
+    )
+
+    assert result.action.action_type == "expand_with_drafts"
+    assert result.orchestration_plan.route == "draft_first_then_answer"
+    assert result.orchestration_plan.persistence_decision == "persist_first"
+    assert result.orchestration_plan.authorization.status == "auto_approved"
+    assert result.created_node_ids == ["vector-space"]
+    assert result.answer.references == ["vector-space"]
+    assert result.answer.assistant_text.endswith("[K1]")
 
 
 def test_orchestrator_does_not_queue_knowledge_job_for_compact_then_answer(

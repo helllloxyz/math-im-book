@@ -216,10 +216,10 @@ describe('AgentStatePage', () => {
             symbol_conflicts: [],
             alignment_notes: [],
             orchestration_plan: {
-              route: 'answer_then_suggest_drafts',
+              route: 'ask_before_persist',
               intent: 'broad_overview',
               confidence: 0.78,
-              persistence_decision: 'suggest_drafts',
+              persistence_decision: 'await_approval',
               user_visible_summary: '先回答，再建议沉淀草稿。',
               detected_scope_ids: [],
               profile_layers_used: [],

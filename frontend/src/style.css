@@ -525,22 +525,6 @@ input:focus-visible {
   background: linear-gradient(to bottom, transparent, var(--color-surface-container-lowest) 24%);
 }
 
-.reader-panel-shell {
-  position: relative;
-  z-index: 30;
-  width: min(42vw, 560px);
-  min-width: 400px;
-  height: 100%;
-  border-left: 1px solid rgb(var(--color-on-surface-rgb) / 0.1);
-  background: var(--color-surface);
-  box-shadow: -14px 0 40px rgb(var(--color-shadow-rgb) / 0.06);
-  transition: width 280ms cubic-bezier(0.2, 0.75, 0.25, 1);
-}
-
-.reader-panel-shell.expanded {
-  width: min(62vw, 820px);
-}
-
 .mobile-nav-trigger,
 .mobile-nav-close,
 .mobile-nav-backdrop {
@@ -1241,20 +1225,6 @@ input:focus-visible {
   to { opacity: 1; transform: translateX(0); }
 }
 
-@media (max-width: 1180px) {
-  .reader-panel-shell {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(620px, calc(100vw - 292px));
-  }
-
-  .reader-panel-shell.expanded {
-    width: min(820px, calc(100vw - 292px));
-  }
-}
-
 @media (max-width: 760px) {
   .workspace-sidebar {
     position: absolute;
@@ -1343,12 +1313,6 @@ input:focus-visible {
     padding: 8px 12px 12px;
   }
 
-  .reader-panel-shell,
-  .reader-panel-shell.expanded {
-    position: fixed;
-    width: 100vw;
-    min-width: 0;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

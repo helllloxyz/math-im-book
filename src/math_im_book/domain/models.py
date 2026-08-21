@@ -41,6 +41,16 @@ class KnowledgeDraftCandidate:
 
 
 @dataclass(slots=True)
+class KnowledgeAuthorizationDecision:
+    policy: str = "agent_decides"
+    mode: str = "not_required"
+    status: str = "not_required"
+    risk_level: str = "low"
+    operation: str = "none"
+    reason: str = "本轮不会修改知识库。"
+
+
+@dataclass(slots=True)
 class OrchestrationPlan:
     route: str
     intent: str
@@ -55,6 +65,9 @@ class OrchestrationPlan:
     strategy_reason: str = ""
     knowledge_scope_id: str | None = None
     knowledge_scope_label: str = "全部知识"
+    authorization: KnowledgeAuthorizationDecision = field(
+        default_factory=KnowledgeAuthorizationDecision
+    )
 
 
 @dataclass(slots=True)
@@ -211,6 +224,7 @@ class ChatSession:
     provider_profile: ProviderProfile | None = None
     default_answer_style_id: str | None = None
     strategy_agent_id: str = "top-down"
+    knowledge_approval_policy: str = "agent_decides"
     branch_context: "SessionBranch" = field(
         default_factory=lambda: SessionBranch()
     )

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { KnowledgeAnchor, OutlineNode, SessionMessage } from '../../services/api'
+import type { AgentProgressEvent, KnowledgeAnchor, OutlineNode, SessionMessage } from '../../services/api'
 import { extractMarkdownHeadings } from '../../services/markdown'
 import { buildWorkspaceHref } from '../../services/workspaceNavigation'
 import MarkdownContent from '../common/MarkdownContent.vue'
@@ -12,12 +12,15 @@ const props = defineProps<{
   isLoading?: boolean
   sessionId?: string | null
   knowledgeNodes?: OutlineNode[]
+  agentSteps?: AgentProgressEvent[]
+  approvalBusy?: boolean
 }>()
 
 const emit = defineEmits<{
   (event: 'copy', content: string): void
   (event: 'regenerate', messageId: string): void
-  (event: 'open-node', nodeId: string): void
+  (event: 'approve-knowledge', messageId: string, draftIndexes: number[]): void
+  (event: 'reject-knowledge', messageId: string): void
 }>()
 
 const copied = ref(false)
@@ -61,6 +64,63 @@ const knowledgeResultLabel = computed(() => {
   if (knowledgeChangeAnchors.value.length) return `知识库有 ${knowledgeChangeAnchors.value.length} 项变化`
   return '本轮不修改知识库'
 })
+const knowledgeGapCandidates = computed(() => agentPlan.value?.candidate_drafts || [])
+const knowledgeAuthorization = computed(() => {
+  const explicit = agentPlan.value?.authorization
+  if (explicit) return explicit
+  if (knowledgeGapCandidates.value.length) {
+    return {
+      mode: 'require_approval' as const,
+      status: 'pending' as const,
+      risk_level: 'medium' as const,
+      policy: 'agent_decides' as const,
+      operation: 'write_knowledge_nodes',
+      reason: '这些候选知识会写入知识库，需要你确认。',
+    }
+  }
+  return null
+})
+const knowledgeGapTitle = computed(() => {
+  const status = knowledgeAuthorization.value?.status
+  if (status === 'auto_approved') return 'Agent 已自动处理知识补充'
+  if (status === 'approved') return '已授权补充知识'
+  if (status === 'denied') return '本次已跳过知识补充'
+  return '发现知识缺口，需要授权'
+})
+const knowledgeAuthorizationLabel = computed(() => {
+  const status = knowledgeAuthorization.value?.status
+  const policy = knowledgeAuthorization.value?.policy || 'agent_decides'
+  if (policy === 'full_auto' && status === 'auto_approved') return 'Full Auto · 已自动执行'
+  if (policy === 'always_ask' && status === 'pending') return 'Always Ask · 等待确认'
+  if (policy === 'agent_decides' && status === 'auto_approved') return 'Agent 决定 · 已自动授权'
+  if (policy === 'agent_decides' && status === 'pending') return 'Agent 决定 · 等待确认'
+  if (status === 'approved') return '用户已允许'
+  if (status === 'denied') return '已跳过'
+  return '等待你的决定'
+})
+const draftTypeLabel = (draftType: string) => {
+  const labels: Record<string, string> = {
+    missing_definition: '缺失定义',
+    missing_detail: '缺失细节',
+    missing_bridge: '缺失连接',
+    definition: '定义',
+    theorem: '定理',
+    proof_skeleton: '证明骨架',
+    example: '例子',
+    counterexample: '反例',
+    notation: '符号',
+    bridge: '知识连接',
+    summary: '总结',
+  }
+  return labels[draftType] || draftType.replaceAll('_', ' ')
+}
+const approveKnowledge = () => {
+  emit(
+    'approve-knowledge',
+    props.message.message_id,
+    knowledgeGapCandidates.value.map((_, index) => index)
+  )
+}
 const isAssistant = computed(() => props.message.role === 'assistant')
 const roleLabel = computed(() => (isAssistant.value ? props.assistantName || 'Gauss' : 'You'))
 const questionPreview = computed(() => props.message.content.replace(/\s+/g, ' ').trim())
@@ -80,8 +140,14 @@ const isThinking = computed(
 
 const canOpenAnchor = (anchor: KnowledgeAnchor) => anchor.status === 'ready' && !!anchor.node_id
 
+const citationHref = (nodeId: string) => buildWorkspaceHref({
+  view: 'knowledge',
+  sessionId: props.sessionId || undefined,
+  nodeId,
+})
+
 const anchorHref = (anchor: KnowledgeAnchor) => buildWorkspaceHref({
-  view: 'library',
+  view: 'knowledge',
   sessionId: props.sessionId || undefined,
   nodeId: anchor.node_id || undefined,
 })
@@ -203,12 +269,99 @@ const copyContent = async () => {
         :data-message-id="isThinking ? undefined : message.message_id"
         :data-session-id="isThinking ? undefined : sessionId || undefined"
       >
-        <div v-if="isThinking" class="thinking-indicator" data-thinking-indicator>
-          <span></span><span></span><span></span>
-          <em>Working through it</em>
+        <div v-if="isThinking" class="agent-run-progress" data-thinking-indicator>
+          <div class="agent-run-heading">
+            <span class="agent-run-mark">A</span>
+            <div>
+              <strong>Agent 正在处理</strong>
+              <small>知识上下文准备完成后开始回答</small>
+            </div>
+          </div>
+          <ol v-if="agentSteps?.length" data-agent-run-steps>
+            <li
+              v-for="step in agentSteps"
+              :key="step.stage"
+              :class="`is-${step.state}`"
+              :data-agent-stage="step.stage"
+            >
+              <span class="agent-step-state material-symbols-outlined" aria-hidden="true">
+                {{ step.state === 'completed' ? 'check_circle' : step.state === 'failed' ? 'error' : 'progress_activity' }}
+              </span>
+              <span class="agent-step-copy">
+                <strong>{{ step.label }}</strong>
+                <small v-if="step.detail">{{ step.detail }}</small>
+              </span>
+            </li>
+          </ol>
+          <div v-else class="thinking-indicator">
+            <span></span><span></span><span></span>
+            <em>正在启动任务</em>
+          </div>
         </div>
         <MarkdownContent v-else :content="message.content" />
       </div>
+
+      <section
+        v-if="isAssistant && knowledgeGapCandidates.length && knowledgeAuthorization"
+        v-show="!isAnswerCollapsed"
+        class="knowledge-gap-card"
+        :class="`is-${knowledgeAuthorization.status}`"
+        data-knowledge-gap-card
+      >
+        <header>
+          <span class="knowledge-gap-icon material-symbols-outlined" aria-hidden="true">
+            {{ knowledgeAuthorization.status === 'denied' ? 'block' : 'account_tree' }}
+          </span>
+          <div>
+            <strong>{{ knowledgeGapTitle }}</strong>
+            <small>{{ knowledgeAuthorization.reason }}</small>
+          </div>
+          <span class="knowledge-authorization-status">
+            {{ knowledgeAuthorizationLabel }}
+          </span>
+        </header>
+
+        <ol>
+          <li v-for="(draft, index) in knowledgeGapCandidates" :key="`${draft.title}-${index}`">
+            <span>{{ index + 1 }}</span>
+            <div>
+              <strong>{{ draft.title }}</strong>
+              <small>{{ draftTypeLabel(draft.draft_type) }} · {{ draft.reason }}</small>
+            </div>
+          </li>
+        </ol>
+
+        <footer>
+          <div class="knowledge-gap-scope">
+            <span>来源：AI 根据当前 Scope 编译</span>
+            <span>写入：{{ agentPlan?.knowledge_scope_label || '全部知识' }}</span>
+          </div>
+          <div
+            v-if="knowledgeAuthorization.status === 'pending'"
+            class="knowledge-approval-actions"
+          >
+            <button
+              type="button"
+              class="knowledge-deny-button"
+              :disabled="approvalBusy"
+              data-reject-knowledge
+              @click="emit('reject-knowledge', message.message_id)"
+            >
+              本次跳过
+            </button>
+            <button
+              type="button"
+              class="knowledge-approve-button"
+              :disabled="approvalBusy"
+              data-approve-knowledge
+              @click="approveKnowledge"
+            >
+              <span v-if="approvalBusy" class="material-symbols-outlined is-spinning">progress_activity</span>
+              {{ approvalBusy ? '正在处理' : `允许并生成 ${knowledgeGapCandidates.length} 个节点` }}
+            </button>
+          </div>
+        </footer>
+      </section>
 
       <div
         v-if="isAssistant && referencedNodes.length"
@@ -220,12 +373,14 @@ const copyContent = async () => {
           <span>本轮引用</span>
           <small>{{ referencedNodes.length }} 个知识点 · 点击查看完整内容</small>
         </div>
-        <button
+        <a
           v-for="(citation, index) in referencedNodes"
           :key="citation.node_id"
-          type="button"
           :data-citation-node-id="citation.node_id"
-          @click="emit('open-node', citation.node_id)"
+          :href="citationHref(citation.node_id)"
+          target="_blank"
+          rel="noopener noreferrer"
+          :aria-label="`Open ${citation.title} in a new tab`"
         >
           <span class="citation-index">K{{ index + 1 }}</span>
           <span class="citation-copy">
@@ -233,7 +388,7 @@ const copyContent = async () => {
             <small>{{ citation.summary }}</small>
           </span>
           <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-        </button>
+        </a>
       </div>
 
       <div
@@ -607,6 +762,239 @@ const copyContent = async () => {
   margin-bottom: 1.15em;
 }
 
+.agent-run-progress {
+  display: grid;
+  gap: 14px;
+  padding: 2px 0 4px;
+  font-family: var(--font-sans);
+}
+
+.knowledge-gap-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid rgb(var(--color-primary-rgb) / 0.18);
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--color-primary-fixed), var(--color-surface-container-lowest) 72%);
+  font-family: var(--font-sans);
+}
+
+.knowledge-gap-card.is-denied {
+  border-color: var(--color-outline-variant);
+  background: var(--color-surface-container-low);
+}
+
+.knowledge-gap-card > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.knowledge-gap-card > header > div,
+.knowledge-gap-card li > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.knowledge-gap-card strong {
+  color: var(--color-on-surface);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.knowledge-gap-card small,
+.knowledge-gap-scope {
+  color: var(--color-on-surface-variant);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.knowledge-gap-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--color-primary);
+  background: var(--color-surface-container-lowest);
+  font-size: 17px;
+}
+
+.knowledge-authorization-status {
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: var(--color-surface-container-lowest);
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.knowledge-gap-card ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.knowledge-gap-card li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: var(--color-surface-container-lowest);
+}
+
+.knowledge-gap-card li > span {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--color-primary);
+  background: var(--color-primary-fixed);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.knowledge-gap-card > footer {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.knowledge-gap-scope {
+  display: grid;
+  gap: 2px;
+}
+
+.knowledge-approval-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.knowledge-approval-actions button {
+  min-height: 31px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.knowledge-deny-button {
+  color: var(--color-on-surface-variant);
+  border-color: var(--color-outline-variant) !important;
+  background: var(--color-surface-container-lowest);
+}
+
+.knowledge-approve-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-on-primary);
+  background: var(--color-primary);
+}
+
+.knowledge-approval-actions button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.knowledge-approve-button .material-symbols-outlined {
+  font-size: 14px;
+}
+
+.is-spinning {
+  animation: spin 1.1s linear infinite;
+}
+
+.agent-run-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-run-heading > div,
+.agent-step-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.agent-run-heading strong {
+  color: var(--color-on-surface);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agent-run-heading small,
+.agent-step-copy small {
+  color: var(--color-on-surface-variant);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.agent-run-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--color-primary);
+  background: var(--color-primary-fixed);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.agent-run-progress ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+}
+
+.agent-run-progress li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: var(--color-on-surface-variant);
+}
+
+.agent-run-progress li.is-running {
+  color: var(--color-primary);
+}
+
+.agent-run-progress li.is-failed {
+  color: var(--color-danger);
+}
+
+.agent-step-state {
+  margin-top: 1px;
+  font-size: 16px;
+}
+
+.agent-run-progress li.is-running .agent-step-state {
+  animation: spin 1.1s linear infinite;
+}
+
+.agent-step-copy strong {
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 550;
+}
+
 .thinking-indicator {
   display: flex;
   min-height: 28px;
@@ -659,7 +1047,7 @@ const copyContent = async () => {
   font-size: 9px;
 }
 
-.knowledge-citations > button {
+.knowledge-citations > a {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -671,10 +1059,11 @@ const copyContent = async () => {
   color: var(--color-on-surface);
   background: var(--color-surface-container-lowest);
   text-align: left;
+  text-decoration: none;
 }
 
-.knowledge-citations > button:hover,
-.knowledge-citations > button:focus-visible {
+.knowledge-citations > a:hover,
+.knowledge-citations > a:focus-visible {
   border-color: rgb(var(--color-primary-rgb) / 0.24);
   background: var(--color-primary-fixed);
 }
@@ -907,6 +1296,10 @@ const copyContent = async () => {
   50% { opacity: 1; transform: translateY(-2px); }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 640px) {
   .assistant-message .message-card {
     padding: 16px 16px 5px;
@@ -918,6 +1311,24 @@ const copyContent = async () => {
 
   .message-actions {
     opacity: 1;
+  }
+
+  .knowledge-gap-card > header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .knowledge-authorization-status {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .knowledge-gap-card > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .knowledge-approval-actions button {
+    flex: 1;
   }
 }
 </style>

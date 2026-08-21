@@ -103,3 +103,19 @@ def test_session_store_roundtrips_working_turn_agent_state(tmp_path) -> None:
         "scope_memory:linear-algebra",
     ]
     assert context.state_items[0].kind == "knowledge_draft"
+
+
+def test_session_store_roundtrips_knowledge_approval_policy(tmp_path) -> None:
+    store = FileSessionStore(tmp_path / "chats")
+    store.save_record(
+        SessionRecord(
+            session_id="chat-full-auto",
+            knowledge_approval_policy="full_auto",
+        )
+    )
+
+    record = store.load_record("chat-full-auto")
+
+    assert record is not None
+    assert record.knowledge_approval_policy == "full_auto"
+    assert store.get("chat-full-auto").knowledge_approval_policy == "full_auto"

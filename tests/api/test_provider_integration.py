@@ -162,12 +162,17 @@ class _KnowledgeCompileGateway:
         if "context planner" in request.system_instruction:
             return ProviderResult(
                 output_text=(
-                    '{"action_type":"expand_with_drafts",'
+                    '{"route":"draft_first_then_answer",'
+                    '"intent":"definition",'
+                    '"persistence_decision":"persist_first",'
+                    '"confidence":0.92,'
                     '"selected_node_ids":[],'
-                    '"draft_requests":[{"title":"Linear Algebra",'
+                    '"detected_scope_ids":[],"profile_layers_used":[],'
+                    '"profile_context_summary":null,'
+                    '"candidate_drafts":[{"title":"Linear Algebra",'
                     '"draft_type":"missing_definition",'
                     '"reason":"The knowledge base is missing this definition."}],'
-                    '"user_visible_reason":"Existing knowledge is insufficient."}'
+                    '"user_visible_summary":"Existing knowledge is insufficient."}'
                 ),
                 provider_name="gemini",
             )

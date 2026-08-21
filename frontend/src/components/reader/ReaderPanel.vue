@@ -6,8 +6,9 @@ import NodeReferences from './NodeReferences.vue';
 
 const store = useWorkspaceStore();
 
-defineProps<{
+const props = defineProps<{
   isExpanded?: boolean;
+  pageMode?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -82,7 +83,11 @@ const prepareFollowUp = () => {
 </script>
 
 <template>
-  <div class="reader-panel flex h-full flex-col overflow-hidden bg-surface text-on-surface">
+  <div
+    class="reader-panel flex h-full flex-col overflow-hidden bg-surface text-on-surface"
+    :class="{ 'knowledge-page-reader': props.pageMode }"
+    :data-knowledge-page="props.pageMode ? 'true' : undefined"
+  >
     <!-- Header -->
     <div class="flex h-[74px] shrink-0 items-center justify-between gap-4 border-b border-outline-variant/10 px-6">
       <div class="min-w-0 flex items-center gap-3 text-on-surface-variant/60">
@@ -114,6 +119,7 @@ const prepareFollowUp = () => {
           <span class="material-symbols-outlined text-[18px]">{{ isEditing ? 'undo' : 'edit' }}</span>
         </button>
         <button
+          v-if="!props.pageMode"
           :title="isExpanded ? 'Restore preview' : 'Expand preview'"
           :aria-label="isExpanded ? 'Restore note width' : 'Expand note width'"
           data-reader-action="toggle-width"
@@ -125,6 +131,7 @@ const prepareFollowUp = () => {
           </span>
         </button>
         <button
+          v-if="!props.pageMode"
           title="Close note"
           aria-label="Close note"
           data-reader-action="close"
@@ -141,7 +148,7 @@ const prepareFollowUp = () => {
       <article
         v-if="node"
         class="mx-auto space-y-10 transition-[max-width] duration-300 ease-out"
-        :class="isExpanded ? 'max-w-[58rem]' : 'max-w-2xl'"
+        :class="props.pageMode || isExpanded ? 'max-w-[58rem]' : 'max-w-2xl'"
       >
         <form
           v-if="isEditing"

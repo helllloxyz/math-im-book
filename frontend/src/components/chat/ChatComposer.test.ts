@@ -109,4 +109,24 @@ describe('ChatComposer', () => {
     expect(wrapper.emitted('ask')).toBeFalsy()
     expect(store.draftQuestion).toBe('')
   })
+
+  it('lets the user choose the knowledge approval policy', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkspaceStore()
+    const wrapper = mount(ChatComposer, {
+      global: { plugins: [pinia] },
+    })
+
+    const selector = wrapper.get('select[aria-label="Approval policy"]')
+    expect(selector.findAll('option').map((option) => option.attributes('value'))).toEqual([
+      'agent_decides',
+      'always_ask',
+      'full_auto',
+    ])
+
+    await selector.setValue('full_auto')
+
+    expect(store.selectedKnowledgeApprovalPolicy).toBe('full_auto')
+  })
 })

@@ -13,6 +13,7 @@ from math_im_book.domain.models import (
     AgentStateItem,
     AnswerAnchor,
     ChatSession,
+    KnowledgeAuthorizationDecision,
     KnowledgeDraftCandidate,
     ModelSelection,
     OrchestrationPlan,
@@ -109,6 +110,7 @@ class SessionRecord:
     provider_profile: ProviderProfile | None = None
     default_answer_style_id: str | None = None
     strategy_agent_id: str = "top-down"
+    knowledge_approval_policy: str = "agent_decides"
     branch_context: SessionBranchContext = field(
         default_factory=lambda: SessionBranchContext()
     )
@@ -142,6 +144,7 @@ class FileSessionStore:
             provider_profile=record.provider_profile,
             default_answer_style_id=record.default_answer_style_id,
             strategy_agent_id=record.strategy_agent_id,
+            knowledge_approval_policy=record.knowledge_approval_policy,
             branch_context=record.branch_context,
         )
 
@@ -169,6 +172,7 @@ class FileSessionStore:
                 provider_profile=session.provider_profile,
                 default_answer_style_id=session.default_answer_style_id,
                 strategy_agent_id=session.strategy_agent_id,
+                knowledge_approval_policy=session.knowledge_approval_policy,
                 branch_context=session.branch_context,
             )
         )
@@ -190,6 +194,7 @@ class FileSessionStore:
                 provider_profile=record.provider_profile,
                 default_answer_style_id=record.default_answer_style_id,
                 strategy_agent_id=record.strategy_agent_id,
+                knowledge_approval_policy=record.knowledge_approval_policy,
                 branch_context=record.branch_context,
                 messages=[],
                 created_at=created_at,
@@ -217,6 +222,7 @@ class FileSessionStore:
             provider_profile=metadata.provider_profile,
             default_answer_style_id=metadata.default_answer_style_id,
             strategy_agent_id=metadata.strategy_agent_id,
+            knowledge_approval_policy=metadata.knowledge_approval_policy,
             branch_context=metadata.branch_context,
             messages=self.load_visible_messages(session_id),
             created_at=metadata.created_at,
@@ -239,6 +245,7 @@ class FileSessionStore:
             provider_profile=metadata.provider_profile,
             default_answer_style_id=metadata.default_answer_style_id,
             strategy_agent_id=metadata.strategy_agent_id,
+            knowledge_approval_policy=metadata.knowledge_approval_policy,
             branch_context=metadata.branch_context,
             messages=messages,
             created_at=metadata.created_at,
@@ -258,6 +265,7 @@ class FileSessionStore:
         provider_profile: ProviderProfile | None | object = _UNCHANGED,
         branch_context: SessionBranchContext | object = _UNCHANGED,
         strategy_agent_id: str | object = _UNCHANGED,
+        knowledge_approval_policy: str | object = _UNCHANGED,
     ) -> SessionRecord:
         record = self.load_local_record(session_id)
         if record is None:
@@ -282,6 +290,11 @@ class FileSessionStore:
                 if strategy_agent_id is _UNCHANGED
                 else strategy_agent_id
             ),
+            knowledge_approval_policy=(
+                record.knowledge_approval_policy
+                if knowledge_approval_policy is _UNCHANGED
+                else knowledge_approval_policy
+            ),
             branch_context=(
                 record.branch_context
                 if branch_context is _UNCHANGED
@@ -304,6 +317,7 @@ class FileSessionStore:
         conversation_model: ModelSelection | None | object = _UNCHANGED,
         provider_profile: ProviderProfile | None | object = _UNCHANGED,
         strategy_agent_id: str | object = _UNCHANGED,
+        knowledge_approval_policy: str | object = _UNCHANGED,
     ) -> SessionRecord:
         record = self.load_local_record(session_id)
         if record is None:
@@ -328,6 +342,11 @@ class FileSessionStore:
                 record.strategy_agent_id
                 if strategy_agent_id is _UNCHANGED
                 else strategy_agent_id
+            ),
+            knowledge_approval_policy=(
+                record.knowledge_approval_policy
+                if knowledge_approval_policy is _UNCHANGED
+                else knowledge_approval_policy
             ),
             branch_context=(
                 record.branch_context
@@ -539,6 +558,12 @@ class FileSessionStore:
                 else None
             ),
             strategy_agent_id=str(payload.get("strategy_agent_id") or "top-down"),
+            knowledge_approval_policy=(
+                str(payload.get("knowledge_approval_policy"))
+                if payload.get("knowledge_approval_policy")
+                in {"agent_decides", "always_ask", "full_auto"}
+                else "agent_decides"
+            ),
             branch_context=_deserialize_branch(branch_payload),
             messages=[],
             created_at=payload.get("created_at"),
@@ -559,6 +584,7 @@ class FileSessionStore:
                     "icon": record.icon,
                     "default_answer_style_id": record.default_answer_style_id,
                     "strategy_agent_id": record.strategy_agent_id,
+                    "knowledge_approval_policy": record.knowledge_approval_policy,
                     "created_at": record.created_at or _utcnow(),
                     "updated_at": record.updated_at or _utcnow(),
                     "message_count": record.message_count,
@@ -850,6 +876,14 @@ def _serialize_orchestration_plan(
         "strategy_reason": plan.strategy_reason,
         "knowledge_scope_id": plan.knowledge_scope_id,
         "knowledge_scope_label": plan.knowledge_scope_label,
+        "authorization": {
+            "policy": plan.authorization.policy,
+            "mode": plan.authorization.mode,
+            "status": plan.authorization.status,
+            "risk_level": plan.authorization.risk_level,
+            "operation": plan.authorization.operation,
+            "reason": plan.authorization.reason,
+        },
     }
 
 
@@ -908,6 +942,59 @@ def _deserialize_orchestration_plan(payload: object) -> OrchestrationPlan | None
             payload["knowledge_scope_label"]
             if isinstance(payload.get("knowledge_scope_label"), str)
             else "全部知识"
+        ),
+        authorization=_deserialize_knowledge_authorization(
+            payload.get("authorization")
+        ),
+    )
+
+
+def _deserialize_knowledge_authorization(
+    payload: object,
+) -> KnowledgeAuthorizationDecision:
+    if not isinstance(payload, dict):
+        return KnowledgeAuthorizationDecision()
+    return KnowledgeAuthorizationDecision(
+        policy=(
+            payload["policy"]
+            if payload.get("policy")
+            in {"agent_decides", "always_ask", "full_auto"}
+            else "agent_decides"
+        ),
+        mode=(
+            payload["mode"]
+            if payload.get("mode") in {
+                "not_required",
+                "auto_execute",
+                "require_approval",
+            }
+            else "not_required"
+        ),
+        status=(
+            payload["status"]
+            if payload.get("status") in {
+                "not_required",
+                "auto_approved",
+                "pending",
+                "approved",
+                "denied",
+            }
+            else "not_required"
+        ),
+        risk_level=(
+            payload["risk_level"]
+            if payload.get("risk_level") in {"low", "medium", "high"}
+            else "low"
+        ),
+        operation=(
+            payload["operation"]
+            if isinstance(payload.get("operation"), str)
+            else "none"
+        ),
+        reason=(
+            payload["reason"]
+            if isinstance(payload.get("reason"), str)
+            else "本轮不会修改知识库。"
         ),
     )
 

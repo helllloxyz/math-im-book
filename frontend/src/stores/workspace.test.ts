@@ -22,6 +22,7 @@ vi.mock('../services/api', () => ({
     updateKnowledgeNode: vi.fn(),
     getKnowledgeJob: vi.fn(),
     compileSuggestedDrafts: vi.fn(),
+    rejectSuggestedDrafts: vi.fn(),
     compileSelectionKnowledge: vi.fn(),
     createCredential: vi.fn(),
     updateCredential: vi.fn(),
@@ -580,11 +581,12 @@ describe('workspace store provider configuration', () => {
     expect(store.selectedStrategyAgentId).toBe('auto');
   });
 
-  it('syncs selectedAnswerStyleId and selectedStrategyAgentId when selecting a session', async () => {
+  it('syncs answer, strategy, and approval settings when selecting a session', async () => {
     vi.mocked(api.getSession).mockResolvedValue({
       session_id: 'sess-123',
       default_answer_style_id: 'rigorous',
       strategy_agent_id: 'raw',
+      knowledge_approval_policy: 'full_auto',
       messages: [],
       branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
     } as any);
@@ -595,6 +597,7 @@ describe('workspace store provider configuration', () => {
 
     expect(store.selectedAnswerStyleId).toBe('rigorous');
     expect(store.selectedStrategyAgentId).toBe('raw');
+    expect(store.selectedKnowledgeApprovalPolicy).toBe('full_auto');
   });
 
   it('sends the selected answer style id with ask requests only when explicitly selected', async () => {
@@ -653,7 +656,9 @@ describe('workspace store provider configuration', () => {
       undefined,
       expect.objectContaining({
         onChunk: expect.any(Function),
-      })
+      }),
+      null,
+      'agent_decides'
     );
   });
 
@@ -734,7 +739,9 @@ describe('workspace store provider configuration', () => {
       undefined,
       expect.objectContaining({
         onChunk: expect.any(Function),
-      })
+      }),
+      null,
+      'agent_decides'
     );
     expect(api.getAgentState).toHaveBeenCalledWith('chat-1');
   });
@@ -776,6 +783,7 @@ describe('workspace store provider configuration', () => {
       credential_id: 'gemini-main',
     } as any;
     store.selectedStrategyAgentId = 'raw';
+    store.selectedKnowledgeApprovalPolicy = 'always_ask';
 
     await store.ask('Explain the proof.');
 
@@ -791,7 +799,9 @@ describe('workspace store provider configuration', () => {
       'raw',
       expect.objectContaining({
         onChunk: expect.any(Function),
-      })
+      }),
+      null,
+      'always_ask'
     );
   });
 
@@ -1171,6 +1181,81 @@ describe('workspace store provider configuration', () => {
     expect(api.getOutline).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
+  });
+
+  it('rejects a pending knowledge write and refreshes the message state', async () => {
+    vi.mocked(api.rejectSuggestedDrafts).mockResolvedValue({
+      session_id: 'chat-1',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [
+        {
+          message_id: 'msg-a',
+          role: 'assistant',
+          content: 'answer',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+            orchestration_plan: {
+              route: 'ask_before_persist',
+              intent: 'definition',
+              persistence_decision: 'await_approval',
+              confidence: 0.7,
+              user_visible_summary: '发现知识缺口。',
+              detected_scope_ids: [],
+              profile_layers_used: [],
+              candidate_drafts: [],
+              strategy_mode: 'raw',
+              strategy_reason: '',
+              knowledge_scope_label: '全部知识',
+              authorization: {
+                mode: 'require_approval',
+                status: 'denied',
+                risk_level: 'medium',
+                operation: 'write_knowledge_nodes',
+                reason: '需要审批。',
+              },
+            },
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      ],
+    } as any);
+    vi.mocked(api.getAgentState).mockResolvedValue({
+      current_turn: null,
+      knowledge_queue: [],
+      profile_observations: [],
+      profile_patches: [],
+      memory_scope: {
+        detected_scope_ids: [],
+        profile_layers_used: [],
+        has_global_user_profile: false,
+        has_scope_memory: false,
+      },
+      context_health: {
+        active_node_count: 0,
+        summary_node_count: 0,
+        pending_draft_count: 0,
+        failed_item_count: 0,
+        symbol_conflict_count: 0,
+      },
+      recent_decisions: [],
+    } as any);
+    const store = useWorkspaceStore();
+    store.currentSession = {
+      session_id: 'chat-1',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [],
+    } as any;
+
+    await store.rejectSuggestedDrafts('msg-a');
+
+    expect(api.rejectSuggestedDrafts).toHaveBeenCalledWith('chat-1', 'msg-a');
+    expect(
+      store.currentSession?.messages[0].assistant_context.orchestration_plan?.authorization?.status
+    ).toBe('denied');
+    expect(store.knowledgeApprovalBusyMessageIds).toEqual([]);
   });
 
   it('updates the draft question through setDraftQuestion', () => {
