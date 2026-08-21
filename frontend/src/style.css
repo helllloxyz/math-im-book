@@ -775,21 +775,36 @@ input:focus-visible {
   margin: 3px 0 2px;
   border-color: transparent;
   color: var(--color-on-surface);
-  background: rgb(var(--color-surface-lowest-rgb) / 0.56);
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-primary) 42%, transparent);
+  background: transparent;
+  box-shadow: none;
   font-weight: 600;
 }
 
 .explorer-tree-folder.explorer-tree-scope-root:hover {
   border-color: transparent;
-  background: rgb(var(--color-surface-lowest-rgb) / 0.82);
+  background: rgb(var(--color-surface-lowest-rgb) / 0.5);
 }
 
 .explorer-tree-folder.explorer-tree-scope-root.tree-folder-active,
 .explorer-tree-folder.explorer-tree-scope-root.tree-folder-active:hover {
-  border-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
-  background: rgb(var(--color-primary-rgb) / 0.085);
-  box-shadow: inset 2px 0 0 rgb(var(--color-primary-rgb) / 0.62);
+  border-color: transparent;
+  background: rgb(var(--color-primary-rgb) / 0.07);
+  box-shadow: inset 2px 0 0 rgb(var(--color-primary-rgb) / 0.52);
+}
+
+.explorer-tree-scope-mark {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  color: rgb(var(--color-primary-rgb) / 0.58);
+}
+
+.explorer-tree-scope-mark .material-symbols-outlined {
+  font-size: 13px;
 }
 
 .explorer-tree-drop-target {

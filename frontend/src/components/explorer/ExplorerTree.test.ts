@@ -82,6 +82,7 @@ describe('ExplorerTree', () => {
     expect(wrapper.text()).toContain('Linear Map');
     expect(wrapper.find('[data-explorer-folder="folder-1"]').exists()).toBe(true);
     expect(wrapper.get('[data-explorer-scope-root="true"]').classes()).toContain('explorer-tree-scope-root');
+    expect(wrapper.get('[data-explorer-scope-mark]').text()).toBe('adjust');
     expect(wrapper.find('.explorer-tree-icon').exists()).toBe(false);
     expect(wrapper.find('[data-explorer-item="linear-map"]').classes()).toContain('tree-item-active');
 
@@ -107,6 +108,26 @@ describe('ExplorerTree', () => {
     expect(wrapper.text()).toContain('Linear Map');
     expect(wrapper.get('[data-explorer-item="linear-map"]').classes()).not.toContain('tree-item-active');
     expect(wrapper.get('[data-explorer-item="linear-map"]').attributes('aria-selected')).toBe('false');
+  });
+
+  it('clears a selected scope folder when the blank tree area is clicked', async () => {
+    const wrapper = mount(ExplorerTree, {
+      props: {
+        tree,
+        currentItemId: null,
+        title: 'Conversations',
+      },
+    });
+
+    const scopeFolder = wrapper.get('[data-explorer-folder="folder-1"]');
+    await scopeFolder.trigger('click');
+    expect(scopeFolder.classes()).toContain('tree-folder-active');
+    expect(scopeFolder.attributes('aria-selected')).toBe('true');
+
+    await wrapper.get('[data-explorer-background]').trigger('click');
+    expect(scopeFolder.classes()).not.toContain('tree-folder-active');
+    expect(scopeFolder.attributes('aria-selected')).toBe('false');
+    expect(wrapper.get('[data-explorer-root-select]').classes()).toContain('is-root-active');
   });
 
   it('selects a file exclusively and uses its containing folder as the create base', async () => {

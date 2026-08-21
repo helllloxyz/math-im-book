@@ -34,6 +34,14 @@
         </span>
       </button>
       <span class="explorer-tree-label">{{ node.folder?.name || 'Untitled' }}</span>
+      <span
+        v-if="isScopeRoot"
+        class="explorer-tree-scope-mark"
+        data-explorer-scope-mark
+        aria-label="Scope root"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">adjust</span>
+      </span>
       <span class="explorer-tree-count" :aria-label="`${folderItemCount} items`">
         {{ folderItemCount }}
       </span>
