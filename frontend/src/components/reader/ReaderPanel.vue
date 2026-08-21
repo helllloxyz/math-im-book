@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useWorkspaceStore } from '../../stores/workspace';
 import MarkdownContent from '../common/MarkdownContent.vue';
 import NodeReferences from './NodeReferences.vue';
@@ -42,6 +42,43 @@ const markdownDetail = computed(() => {
   }
   return node.value.detail;
 });
+
+const isEditing = ref(false);
+const editDraft = reactive({ title: '', type: '', summary: '', detail: '' });
+
+const resetEditDraft = () => {
+  if (!node.value) return;
+  editDraft.title = node.value.title;
+  editDraft.type = node.value.type;
+  editDraft.summary = node.value.summary;
+  editDraft.detail = node.value.detail;
+};
+
+watch(() => node.value?.id, () => {
+  isEditing.value = false;
+  resetEditDraft();
+}, { immediate: true });
+
+const startEditing = () => {
+  resetEditDraft();
+  isEditing.value = true;
+};
+
+const saveEdit = async () => {
+  if (!node.value) return;
+  await store.saveKnowledgeNode(node.value.id, {
+    title: editDraft.title,
+    type: editDraft.type,
+    summary: editDraft.summary,
+    detail: editDraft.detail,
+  });
+  isEditing.value = false;
+};
+
+const prepareFollowUp = () => {
+  if (!node.value) return;
+  store.prepareKnowledgeFollowUp(node.value.id, node.value.title);
+};
 </script>
 
 <template>
@@ -56,6 +93,26 @@ const markdownDetail = computed(() => {
         </div>
       </div>
       <div class="flex shrink-0 items-center text-on-surface-variant/40">
+        <button
+          v-if="node"
+          title="Ask a follow-up about this note"
+          aria-label="Ask about this knowledge note"
+          data-reader-action="follow-up"
+          class="hover:text-primary transition-colors flex items-center justify-center w-8 h-8 rounded-full hover:bg-primary-fixed"
+          @click="prepareFollowUp"
+        >
+          <span class="material-symbols-outlined text-[18px]">chat_bubble</span>
+        </button>
+        <button
+          v-if="node"
+          :title="isEditing ? 'Cancel editing' : 'Edit knowledge note'"
+          :aria-label="isEditing ? 'Cancel editing' : 'Edit knowledge note'"
+          data-reader-action="edit"
+          class="hover:text-primary transition-colors flex items-center justify-center w-8 h-8 rounded-full hover:bg-primary-fixed"
+          @click="isEditing ? (isEditing = false) : startEditing()"
+        >
+          <span class="material-symbols-outlined text-[18px]">{{ isEditing ? 'undo' : 'edit' }}</span>
+        </button>
         <button
           :title="isExpanded ? 'Restore preview' : 'Expand preview'"
           :aria-label="isExpanded ? 'Restore note width' : 'Expand note width'"
@@ -86,6 +143,40 @@ const markdownDetail = computed(() => {
         class="mx-auto space-y-10 transition-[max-width] duration-300 ease-out"
         :class="isExpanded ? 'max-w-[58rem]' : 'max-w-2xl'"
       >
+        <form
+          v-if="isEditing"
+          class="space-y-6 rounded-2xl bg-surface-container-lowest p-6 shadow-sm ghost-border"
+          data-knowledge-editor
+          @submit.prevent="saveEdit"
+        >
+          <div class="grid gap-2">
+            <label class="font-sans text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Title</label>
+            <input v-model="editDraft.title" required class="rounded-xl border border-outline-variant/20 bg-surface px-4 py-3 font-serif text-xl text-on-surface outline-none focus:border-primary/40" />
+          </div>
+          <div class="grid gap-2">
+            <label class="font-sans text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Type</label>
+            <input v-model="editDraft.type" required class="rounded-xl border border-outline-variant/20 bg-surface px-4 py-3 font-sans text-sm text-on-surface outline-none focus:border-primary/40" />
+          </div>
+          <div class="grid gap-2">
+            <label class="font-sans text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Summary</label>
+            <textarea v-model="editDraft.summary" required rows="3" class="resize-y rounded-xl border border-outline-variant/20 bg-surface px-4 py-3 font-serif text-base leading-relaxed text-on-surface outline-none focus:border-primary/40"></textarea>
+          </div>
+          <div class="grid gap-2">
+            <label class="font-sans text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Detail</label>
+            <textarea v-model="editDraft.detail" required rows="14" class="resize-y rounded-xl border border-outline-variant/20 bg-surface px-4 py-3 font-mono text-sm leading-relaxed text-on-surface outline-none focus:border-primary/40"></textarea>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <p class="font-sans text-[10px] text-on-surface-variant">Saving creates revision {{ node.revision + 1 }}.</p>
+            <div class="flex gap-2">
+              <button type="button" class="rounded-lg px-4 py-2 font-sans text-xs text-on-surface-variant hover:bg-surface-container-low" @click="isEditing = false">Cancel</button>
+              <button type="submit" :disabled="store.explorerBusy" class="rounded-lg bg-primary px-4 py-2 font-sans text-xs font-semibold text-on-primary disabled:opacity-50">
+                {{ store.explorerBusy ? 'Saving…' : 'Save revision' }}
+              </button>
+            </div>
+          </div>
+        </form>
+
+        <template v-else>
         <div class="space-y-6">
           <h1 class="font-serif text-4xl font-medium leading-tight tracking-[-0.025em] text-primary">
             {{ node.title }}
@@ -94,6 +185,9 @@ const markdownDetail = computed(() => {
           <div v-if="node.detail && node.summary" class="border-l-2 border-accent/50 pl-5 font-serif text-lg leading-relaxed text-on-surface-variant italic">
             {{ node.summary }}
           </div>
+          <p class="font-sans text-[9px] uppercase tracking-widest text-on-surface-variant/55">
+            Revision {{ node.revision }}
+          </p>
         </div>
 
         <div
@@ -116,6 +210,7 @@ const markdownDetail = computed(() => {
         </div>
 
         <NodeReferences />
+        </template>
       </article>
 
       <!-- Empty State -->

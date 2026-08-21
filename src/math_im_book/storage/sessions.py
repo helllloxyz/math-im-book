@@ -257,6 +257,7 @@ class FileSessionStore:
         conversation_model: ModelSelection | None | object = _UNCHANGED,
         provider_profile: ProviderProfile | None | object = _UNCHANGED,
         branch_context: SessionBranchContext | object = _UNCHANGED,
+        strategy_agent_id: str | object = _UNCHANGED,
     ) -> SessionRecord:
         record = self.load_local_record(session_id)
         if record is None:
@@ -276,7 +277,11 @@ class FileSessionStore:
                 else provider_profile
             ),
             default_answer_style_id=record.default_answer_style_id,
-            strategy_agent_id=record.strategy_agent_id,
+            strategy_agent_id=(
+                record.strategy_agent_id
+                if strategy_agent_id is _UNCHANGED
+                else strategy_agent_id
+            ),
             branch_context=(
                 record.branch_context
                 if branch_context is _UNCHANGED
@@ -298,6 +303,7 @@ class FileSessionStore:
         icon: str | None | object = _UNCHANGED,
         conversation_model: ModelSelection | None | object = _UNCHANGED,
         provider_profile: ProviderProfile | None | object = _UNCHANGED,
+        strategy_agent_id: str | object = _UNCHANGED,
     ) -> SessionRecord:
         record = self.load_local_record(session_id)
         if record is None:
@@ -318,7 +324,11 @@ class FileSessionStore:
                 else provider_profile
             ),
             default_answer_style_id=record.default_answer_style_id,
-            strategy_agent_id=record.strategy_agent_id,
+            strategy_agent_id=(
+                record.strategy_agent_id
+                if strategy_agent_id is _UNCHANGED
+                else strategy_agent_id
+            ),
             branch_context=(
                 record.branch_context
                 if branch_context is _UNCHANGED
@@ -680,6 +690,7 @@ def _serialize_branch(branch: SessionBranchContext) -> dict[str, object]:
         "active_node_ids": list(branch.active_node_ids),
         "summary_node_ids": list(branch.summary_node_ids),
         "active_symbols": dict(branch.active_symbols),
+        "knowledge_scope_id": branch.knowledge_scope_id,
     }
 
 
@@ -695,6 +706,11 @@ def _deserialize_branch(payload: object) -> SessionBranchContext:
         active_node_ids=list(payload.get("active_node_ids") or []),
         summary_node_ids=list(payload.get("summary_node_ids") or []),
         active_symbols=dict(payload.get("active_symbols") or {}),
+        knowledge_scope_id=(
+            str(payload["knowledge_scope_id"])
+            if payload.get("knowledge_scope_id")
+            else None
+        ),
     )
 
 
@@ -830,6 +846,10 @@ def _serialize_orchestration_plan(
             }
             for draft in plan.candidate_drafts
         ],
+        "strategy_mode": plan.strategy_mode,
+        "strategy_reason": plan.strategy_reason,
+        "knowledge_scope_id": plan.knowledge_scope_id,
+        "knowledge_scope_label": plan.knowledge_scope_label,
     }
 
 
@@ -868,6 +888,26 @@ def _deserialize_orchestration_plan(payload: object) -> OrchestrationPlan | None
         ),
         candidate_drafts=_deserialize_knowledge_draft_candidates(
             payload.get("candidate_drafts")
+        ),
+        strategy_mode=(
+            payload["strategy_mode"]
+            if payload.get("strategy_mode") in {"top-down", "raw"}
+            else "top-down"
+        ),
+        strategy_reason=(
+            payload["strategy_reason"]
+            if isinstance(payload.get("strategy_reason"), str)
+            else ""
+        ),
+        knowledge_scope_id=(
+            payload["knowledge_scope_id"]
+            if isinstance(payload.get("knowledge_scope_id"), str)
+            else None
+        ),
+        knowledge_scope_label=(
+            payload["knowledge_scope_label"]
+            if isinstance(payload.get("knowledge_scope_label"), str)
+            else "全部知识"
         ),
     )
 

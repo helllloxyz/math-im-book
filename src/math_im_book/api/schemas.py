@@ -153,6 +153,10 @@ class OrchestrationPlanSchema(BaseModel):
     profile_layers_used: list[str] = Field(default_factory=list)
     profile_context_summary: str | None = None
     candidate_drafts: list[KnowledgeDraftCandidateSchema] = Field(default_factory=list)
+    strategy_mode: Literal["top-down", "raw"] = "raw"
+    strategy_reason: str = ""
+    knowledge_scope_id: str | None = None
+    knowledge_scope_label: str = "全部知识"
 
 
 class AgentStateItemSchema(BaseModel):
@@ -210,6 +214,9 @@ class AskRequestSchema(BaseModel):
         str, StringConstraints(strip_whitespace=True, min_length=1)
     ] | None = None
     strategy_agent_id: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ] | None = None
+    knowledge_scope_id: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1)
     ] | None = None
 
@@ -274,6 +281,7 @@ class SessionSchema(BaseModel):
     provider_profile: ProviderProfileSchema | None = None
     default_answer_style_id: str | None = None
     strategy_agent_id: str = "top-down"
+    knowledge_scope_id: str | None = None
     branch: SessionBranchSchema = Field(default_factory=SessionBranchSchema)
     messages: list["SessionMessageSchema"] = Field(default_factory=list)
 
@@ -288,6 +296,7 @@ class SessionListItemSchema(BaseModel):
     provider_profile: ProviderProfileSchema | None = None
     default_answer_style_id: str | None = None
     strategy_agent_id: str = "top-down"
+    knowledge_scope_id: str | None = None
     branch: SessionBranchSchema = Field(default_factory=SessionBranchSchema)
     message_count: int
     last_message: SessionMessageSchema | None = None
@@ -367,6 +376,8 @@ class KnowledgeNodeSchema(BaseModel):
     status: str
     symbols: dict[str, str] = Field(default_factory=dict)
     symbol_scopes: dict[str, dict[str, str]] = Field(default_factory=dict)
+    revision: int = 1
+    updated_at: str | None = None
 
 
 class NodeResponseSchema(BaseModel):
@@ -378,7 +389,10 @@ class NodeResponseSchema(BaseModel):
 class KnowledgeNodeUpdateSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None = None
+    summary: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None = None
+    detail: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None = None
+    type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None = None
 
 
 class OutlineNodeSchema(BaseModel):

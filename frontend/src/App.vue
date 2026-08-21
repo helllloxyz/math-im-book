@@ -117,10 +117,12 @@
               :key="msg.message_id"
               :message="msg"
               :session-id="currentSession?.session_id"
+              :knowledge-nodes="outline"
               :assistant-name="assistantName"
               :can-regenerate="canRegenerateMessage(msg.message_id)"
               :is-loading="loading && isLatestMessage(msg.message_id)"
               @regenerate="handleRegenerate"
+              @open-node="store.selectNode"
             />
           </transition-group>
         </div>
@@ -190,7 +192,7 @@ import { useWorkspaceStore } from './stores/workspace'
 import { buildWorkspaceHref, readWorkspaceTarget } from './services/workspaceNavigation'
 
 const store = useWorkspaceStore()
-const { currentSession, currentNode, loading, activeTab } = storeToRefs(store)
+const { currentSession, currentNode, outline, loading, activeTab } = storeToRefs(store)
 
 const assistantNames = ['Gauss', 'Noether', 'Euler', 'Riemann', 'Hypatia', 'Newton', 'Lagrange', 'Fourier']
 

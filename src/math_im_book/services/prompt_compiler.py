@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math_im_book.domain.models import KnowledgeNode
+
 
 BASE_ANSWER_CONTRACT = "\n".join(
     [
@@ -24,6 +26,7 @@ class AnswerPromptCompiler:
         symbols: dict[str, str],
         symbol_conflicts: list[str],
         strategy_instructions: str,
+        knowledge_references: list[KnowledgeNode] | None = None,
         user_profile_summary: str | None = None,
         answer_style_instructions: str | None = None,
     ) -> str:
@@ -37,11 +40,27 @@ class AnswerPromptCompiler:
                 symbols=symbols,
                 symbol_conflicts=symbol_conflicts,
             ),
+            self._knowledge_reference_block(knowledge_references or []),
             self._question_block(question),
         ]
         if answer_style_instructions:
             parts.append(answer_style_instructions.strip())
         return "\n\n".join(part for part in parts if part)
+
+    @staticmethod
+    def _knowledge_reference_block(nodes: list[KnowledgeNode]) -> str:
+        if not nodes:
+            return ""
+        lines = [
+            "## Reusable Knowledge References",
+            "When a reference materially supports the answer, cite its number such as [K1]. "
+            "Keep the mention concise; the user can open the full knowledge note separately.",
+        ]
+        lines.extend(
+            f"[K{index}] {node.title}: {node.summary}"
+            for index, node in enumerate(nodes, start=1)
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def _user_profile_block(user_profile_summary: str | None) -> str:

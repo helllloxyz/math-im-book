@@ -21,7 +21,8 @@ const {
   selectedAnswerStyleId,
   strategyAgents,
   selectedStrategyAgentId,
-  currentSession,
+  knowledgeScopeOptions,
+  selectedKnowledgeScopeId,
   errorMessage,
 } = storeToRefs(store)
 
@@ -36,7 +37,12 @@ const selectedAnswerStyleValue = computed({
   },
 })
 
-const isNewSession = computed(() => !currentSession.value?.session_id)
+const selectedKnowledgeScopeValue = computed({
+  get: () => selectedKnowledgeScopeId.value || '',
+  set: (value: string) => {
+    selectedKnowledgeScopeId.value = value || null
+  },
+})
 
 const resizeQuestionInput = () => {
   const input = questionInput.value
@@ -110,7 +116,7 @@ const handleKeydown = (event: KeyboardEvent) => {
             </select>
           </label>
 
-          <label v-if="isNewSession && strategyAgents.length">
+          <label v-if="strategyAgents.length" title="Agent answer mode">
             <span class="material-symbols-outlined" aria-hidden="true">route</span>
             <span class="sr-only">Strategy</span>
             <select v-model="selectedStrategyAgentId" aria-label="Strategy">
@@ -120,6 +126,21 @@ const handleKeydown = (event: KeyboardEvent) => {
                 :value="agent.strategy_agent_id"
               >
                 {{ agent.label }}
+              </option>
+            </select>
+          </label>
+
+          <label title="Knowledge scope used for search and answers">
+            <span class="material-symbols-outlined" aria-hidden="true">filter_center_focus</span>
+            <span class="sr-only">Knowledge scope</span>
+            <select v-model="selectedKnowledgeScopeValue" aria-label="Knowledge scope">
+              <option value="">全部知识</option>
+              <option
+                v-for="scope in knowledgeScopeOptions"
+                :key="scope.id"
+                :value="scope.id"
+              >
+                {{ scope.label }} ({{ scope.nodeCount }})
               </option>
             </select>
           </label>

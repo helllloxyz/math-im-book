@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -17,6 +18,9 @@ class MarkdownKnowledgeRepository:
 
     def save_node(self, node: KnowledgeNode) -> Path:
         path = self.root / f"{node.id}.md"
+        updated_at = node.updated_at or datetime.now(timezone.utc).isoformat().replace(
+            "+00:00", "Z"
+        )
         metadata = {
             "id": node.id,
             "title": node.title,
@@ -31,6 +35,8 @@ class MarkdownKnowledgeRepository:
                 for ref in node.references
             ],
             "status": node.status,
+            "revision": max(1, node.revision),
+            "updated_at": updated_at,
         }
         content = "---\n"
         content += yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True)
@@ -63,6 +69,8 @@ class MarkdownKnowledgeRepository:
             status=metadata.get("status", "ready"),
             symbols=metadata.get("symbols", {}),
             symbol_scopes=metadata.get("symbol_scopes", {}),
+            revision=max(1, int(metadata.get("revision", 1))),
+            updated_at=metadata.get("updated_at"),
         )
 
     def list_nodes(self) -> list[KnowledgeNode]:

@@ -4,6 +4,7 @@ import copy
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from threading import Lock, Thread
 from time import perf_counter
 from typing import Callable
@@ -301,6 +302,16 @@ class InMemoryKnowledgeJobRepository:
                 )
                 continue
             try:
+                try:
+                    existing_node = self.repository.get_node(result.node.id)
+                except FileNotFoundError:
+                    existing_node = None
+                result.node.revision = (
+                    existing_node.revision + 1 if existing_node is not None else 1
+                )
+                result.node.updated_at = datetime.now(timezone.utc).isoformat().replace(
+                    "+00:00", "Z"
+                )
                 self.repository.save_node(result.node)
                 if self.explorer_store is not None:
                     self.explorer_store.ensure_item_location(

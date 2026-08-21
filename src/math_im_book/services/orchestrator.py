@@ -76,7 +76,6 @@ class KnowledgeOrchestrator:
     ) -> AskResult:
         clear_provider_response()
         selected_branch_context = self._selected_branch_context(question, branch_context)
-        strategy_instructions = self._strategy_instructions(strategy_agent_id)
         answer_style_instructions = self._answer_style_instructions(answer_style_id)
         summary_nodes: list[KnowledgeNode] = []
         if selected_branch_context is not None:
@@ -101,6 +100,21 @@ class KnowledgeOrchestrator:
                 else {}
             ),
         )
+        plan = action.orchestration_plan
+        strategy_mode, strategy_reason = self._resolve_strategy_mode(
+            question,
+            strategy_agent_id,
+            plan=plan,
+        )
+        strategy_instructions = self._strategy_instructions(strategy_mode)
+        if plan is not None:
+            plan.strategy_mode = strategy_mode
+            plan.strategy_reason = strategy_reason
+            plan.knowledge_scope_id = (
+                selected_branch_context.knowledge_scope_id
+                if selected_branch_context is not None
+                else None
+            )
         selected_nodes = [self.repository.get_node(node_id) for node_id in action.selected_node_ids]
         branch_symbols = (
             dict(selected_branch_context.active_symbols)
@@ -120,7 +134,6 @@ class KnowledgeOrchestrator:
             symbols=symbol_context.symbols,
             conflicts=scope_symbol_context.conflicts,
         )
-        plan = action.orchestration_plan
         if action.action_type in {
             "answer_only",
             "answer_then_suggest_drafts",
@@ -141,6 +154,7 @@ class KnowledgeOrchestrator:
                 session_id=session_id,
                 provider_profile=provider_profile,
                 strategy_instructions=strategy_instructions,
+                knowledge_references=selected_nodes,
                 answer_style_instructions=answer_style_instructions,
                 stream_callback=stream_callback,
             )
@@ -176,6 +190,7 @@ class KnowledgeOrchestrator:
                 session_id=session_id,
                 provider_profile=provider_profile,
                 strategy_instructions=strategy_instructions,
+                knowledge_references=selected_nodes,
                 answer_style_instructions=answer_style_instructions,
                 stream_callback=stream_callback,
             )
@@ -251,6 +266,7 @@ class KnowledgeOrchestrator:
                 session_id=session_id,
                 provider_profile=provider_profile,
                 strategy_instructions=strategy_instructions,
+                knowledge_references=selected_nodes,
                 answer_style_instructions=answer_style_instructions,
                 stream_callback=stream_callback,
             )
@@ -286,6 +302,7 @@ class KnowledgeOrchestrator:
             session_id=session_id,
             provider_profile=provider_profile,
             strategy_instructions=strategy_instructions,
+            knowledge_references=selected_nodes,
             answer_style_instructions=answer_style_instructions,
             stream_callback=stream_callback,
         )
@@ -374,6 +391,7 @@ class KnowledgeOrchestrator:
         session_id: str | None,
         provider_profile: ProviderProfile | None,
         strategy_instructions: str,
+        knowledge_references: list[KnowledgeNode],
         answer_style_instructions: str | None,
         stream_callback: Callable[[str], None] | None = None,
     ) -> str:
@@ -389,6 +407,7 @@ class KnowledgeOrchestrator:
             symbols=symbols,
             symbol_conflicts=symbol_conflicts,
             strategy_instructions=strategy_instructions,
+            knowledge_references=knowledge_references,
             user_profile_summary=self.user_profile_repository.load(),
             answer_style_instructions=answer_style_instructions,
         )
@@ -472,6 +491,57 @@ class KnowledgeOrchestrator:
         if catalog.agents:
             return catalog.agents[0].instructions
         raise KeyError("No strategy agents configured")
+
+    def _resolve_strategy_mode(
+        self,
+        question: str,
+        requested_strategy_agent_id: str | None,
+        *,
+        plan: OrchestrationPlan | None = None,
+    ) -> tuple[str, str]:
+        catalog = self.strategy_agent_repository.load()
+        requested = (
+            requested_strategy_agent_id or catalog.default_strategy_agent_id or "auto"
+        ).strip()
+        if requested in {"top-down", "raw"}:
+            label = "Top Down" if requested == "top-down" else "Raw"
+            return requested, f"已按你的选择使用 {label} 模式。"
+
+        normalized = question.strip().lower()
+        top_down_cues = (
+            "系统",
+            "整体",
+            "框架",
+            "体系",
+            "梳理",
+            "学习路线",
+            "从头",
+            "为什么需要",
+            "overview",
+            "big picture",
+            "roadmap",
+            "systematically",
+            "connect",
+            "relationship",
+        )
+        is_top_down = any(cue in normalized for cue in top_down_cues)
+        if plan is not None and not is_top_down:
+            is_top_down = (
+                plan.intent in {"broad_exploratory", "broad_overview", "teach_concept"}
+                or plan.route in {"answer_then_suggest_drafts", "draft_first_then_answer"}
+                or len(plan.candidate_drafts) >= 2
+            )
+        if not is_top_down:
+            is_top_down = len(normalized) >= 90 or normalized.count("？") + normalized.count("?") > 1
+        if is_top_down:
+            return (
+                "top-down",
+                "Agent 判断这个问题涉及整体结构或多个层次，将先搭框架再回答细节。",
+            )
+        return (
+            "raw",
+            "Agent 判断这个问题聚焦于具体知识点，将直接回答并只引用必要知识。",
+        )
 
     def _answer_style_instructions(self, answer_style_id: str | None) -> str | None:
         if answer_style_id is None:

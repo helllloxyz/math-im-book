@@ -188,6 +188,38 @@ def test_cross_scope_move_is_rejected(tmp_path: Path) -> None:
         )
 
 
+def test_knowledge_scope_includes_nodes_in_nested_folders(tmp_path: Path) -> None:
+    store = ExplorerStore(tmp_path / "explorer" / "index.json")
+    parent = store.create_folder(
+        scope="knowledge",
+        name="Analysis",
+        parent_folder_id=None,
+    )
+    child = store.create_folder(
+        scope="knowledge",
+        name="Convergence",
+        parent_folder_id=parent.folder_id,
+    )
+    store.move_item(
+        item_type="knowledge_node",
+        item_id="uniform-convergence",
+        folder_id=child.folder_id,
+        sort_order=1000,
+        location_source="user",
+    )
+
+    assert store.list_item_ids_in_folder(
+        item_type="knowledge_node",
+        folder_id=parent.folder_id,
+        include_descendants=True,
+    ) == ["uniform-convergence"]
+    assert store.list_item_ids_in_folder(
+        item_type="knowledge_node",
+        folder_id=parent.folder_id,
+        include_descendants=False,
+    ) == []
+
+
 def test_delete_non_empty_folder_is_rejected(tmp_path: Path) -> None:
     store = ExplorerStore(tmp_path / "explorer" / "index.json")
     folder = store.create_folder(scope="sessions", name="Course", parent_folder_id=None)

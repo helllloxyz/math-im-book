@@ -67,7 +67,10 @@ describe('api.askStream', () => {
         model: 'deepseek-chat',
         credential_id: 'deepseek',
       },
-      undefined
+      undefined,
+      undefined,
+      {},
+      'scope-analysis'
     );
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -80,6 +83,7 @@ describe('api.askStream', () => {
       model: 'deepseek-chat',
       credential_id: 'deepseek',
     });
+    expect(body.knowledge_scope_id).toBe('scope-analysis');
   });
 
   it('parses SSE responses separated by CRLF boundaries', async () => {

@@ -257,6 +257,63 @@ class ExplorerStore:
                 return self._folder_from_dict(folder)
         return None
 
+    def get_folder(self, folder_id: str) -> ExplorerFolder:
+        payload = self.load_payload()
+        folder = self._get_folder(payload["folders"], folder_id)
+        if folder is None:
+            raise KeyError(folder_id)
+        return self._folder_from_dict(folder)
+
+    def list_folders(self, scope: str) -> list[ExplorerFolder]:
+        scope = self._validate_scope(scope)
+        payload = self.load_payload()
+        folders = [
+            self._folder_from_dict(folder)
+            for folder in payload["folders"]
+            if folder["scope"] == scope
+        ]
+        return sorted(folders, key=lambda folder: (folder.path_cached, folder.folder_id))
+
+    def list_item_ids_in_folder(
+        self,
+        *,
+        item_type: str,
+        folder_id: str,
+        include_descendants: bool = True,
+    ) -> list[str]:
+        item_type = self._validate_item_type(item_type)
+        payload = self.load_payload()
+        folder = self._get_folder(payload["folders"], folder_id)
+        if folder is None:
+            raise KeyError(folder_id)
+        if folder["scope"] != ITEM_SCOPE[item_type]:
+            raise ExplorerInvalidMoveError("folder scope does not match item type")
+
+        folder_ids = {folder_id}
+        if include_descendants:
+            pending = [folder_id]
+            while pending:
+                parent_id = pending.pop()
+                child_ids = [
+                    candidate["folder_id"]
+                    for candidate in payload["folders"]
+                    if candidate["parent_folder_id"] == parent_id
+                ]
+                for child_id in child_ids:
+                    if child_id in folder_ids:
+                        continue
+                    folder_ids.add(child_id)
+                    pending.append(child_id)
+
+        return sorted(
+            {
+                location["item_id"]
+                for location in payload["locations"]
+                if location["item_type"] == item_type
+                and location["folder_id"] in folder_ids
+            }
+        )
+
     def remove_item(self, *, item_type: str, item_id: str) -> bool:
         """Remove Explorer-only metadata after the source item is deleted.
 

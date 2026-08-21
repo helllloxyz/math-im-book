@@ -436,6 +436,42 @@ describe('ChatMessage anchors', () => {
     expect(target.searchParams.get('message')).toBe('msg_assistant_agent_summary');
   });
 
+  it('renders referenced knowledge as concise expandable note links', async () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: {
+          message_id: 'msg_with_knowledge',
+          role: 'assistant',
+          content: '一致收敛解决了逐点收敛无法统一控制误差的问题。[K1]',
+          assistant_context: {
+            referenced_node_ids: ['uniform-convergence'],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+        knowledgeNodes: [
+          {
+            id: 'uniform-convergence',
+            title: '一致收敛',
+            type: 'definition',
+            summary: '在整个定义域上统一控制函数列与极限函数的误差。',
+            status: 'ready',
+          },
+        ],
+      },
+    });
+
+    const citation = wrapper.get('[data-citation-node-id="uniform-convergence"]');
+    expect(citation.text()).toContain('一致收敛');
+    expect(citation.text()).toContain('统一控制');
+
+    await citation.trigger('click');
+
+    expect(wrapper.emitted('open-node')).toEqual([['uniform-convergence']]);
+  });
+
   it('uses compact spacing for assistant controls, anchors, and agent feedback', () => {
     const wrapper = mount(ChatMessage, {
       props: {

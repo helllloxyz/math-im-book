@@ -404,6 +404,7 @@ class QuestionPlanner:
             "definition, theorem, proof_skeleton, example, counterexample, notation, bridge, summary. "
             "Use draft_first_then_answer only when durable knowledge should be created before answering. "
             "Use answer_then_suggest_drafts for broad exploratory questions that should not be persisted immediately. "
+            "user_visible_summary and candidate draft reasons must use the same language as the user's question. "
             "For backward compatibility, action_type and draft_requests are also accepted.",
         ]
         if profile_block:

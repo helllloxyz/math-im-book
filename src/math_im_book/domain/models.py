@@ -22,6 +22,8 @@ class KnowledgeNode:
     status: str = "ready"
     symbols: dict[str, str] = field(default_factory=dict)
     symbol_scopes: dict[str, dict[str, str]] = field(default_factory=dict)
+    revision: int = 1
+    updated_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -49,6 +51,10 @@ class OrchestrationPlan:
     profile_layers_used: list[str] = field(default_factory=list)
     profile_context_summary: str | None = None
     candidate_drafts: list[KnowledgeDraftCandidate] = field(default_factory=list)
+    strategy_mode: str = "raw"
+    strategy_reason: str = ""
+    knowledge_scope_id: str | None = None
+    knowledge_scope_label: str = "全部知识"
 
 
 @dataclass(slots=True)
@@ -110,6 +116,7 @@ class SessionBranch:
     active_node_ids: list[str] = field(default_factory=list)
     summary_node_ids: list[str] = field(default_factory=list)
     active_symbols: dict[str, str] = field(default_factory=dict)
+    knowledge_scope_id: str | None = None
 
 
 @dataclass(slots=True)

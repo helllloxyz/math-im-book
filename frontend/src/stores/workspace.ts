@@ -6,6 +6,7 @@ import {
   type SessionListItem,
   type OutlineNode,
   type KnowledgeNode,
+  type KnowledgeNodeUpdate,
   type KnowledgeAnchor,
   type ProviderProfile,
   type CredentialPayload,
@@ -68,6 +69,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const strategyAgents = ref<StrategyAgentSummary[]>([]);
   const selectedAnswerStyleId = ref<string | null>(null);
   const selectedStrategyAgentId = ref('');
+  const selectedKnowledgeScopeId = ref<string | null>(null);
   const selectedProviderProfile = ref<ProviderProfile | null>(null);
   const draftQuestion = ref('');
   const newSessionFolderId = ref<string | null>(null);
@@ -122,6 +124,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
     }
     return profiles;
+  });
+
+  const knowledgeScopeOptions = computed(() => {
+    const options: Array<{ id: string; label: string; nodeCount: number }> = [];
+    const visit = (nodes: ExplorerTreeNode[], parents: string[]) => {
+      for (const node of nodes) {
+        if (node.kind !== 'folder' || !node.folder) continue;
+        const path = [...parents, node.folder.name];
+        const countItems = (children: ExplorerTreeNode[]): number =>
+          children.reduce(
+            (total, child) => total + (
+              child.kind === 'item' ? 1 : countItems(child.children || [])
+            ),
+            0
+          );
+        options.push({
+          id: node.folder.folder_id,
+          label: path.join(' / '),
+          nodeCount: countItems(node.children || []),
+        });
+        visit(node.children || [], path);
+      }
+    };
+    visit(knowledgeExplorerTree.value, []);
+    return options;
   });
 
   function cancelKnowledgeJobPolling() {
@@ -235,6 +262,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       provider_profile: undefined,
       default_answer_style_id: null,
       strategy_agent_id: selectedStrategyAgentId.value,
+      knowledge_scope_id: selectedKnowledgeScopeId.value,
       branch: {
         active_node_ids: [],
         summary_node_ids: [],
@@ -511,6 +539,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function defaultStrategyAgentId(): string {
+    const automatic = strategyAgents.value.find(
+      (agent) => agent.strategy_agent_id === 'auto'
+    );
+    if (automatic) return automatic.strategy_agent_id;
     const configuredDefault = strategyAgents.value.find((agent) => agent.is_default);
     if (configuredDefault) return configuredDefault.strategy_agent_id;
     return strategyAgents.value[0]?.strategy_agent_id || '';
@@ -560,6 +592,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function fetchKnowledgeExplorer() {
     try {
       knowledgeExplorerTree.value = (await api.getKnowledgeExplorer()).tree;
+      if (
+        selectedKnowledgeScopeId.value &&
+        !knowledgeScopeOptions.value.some(
+          (scope) => scope.id === selectedKnowledgeScopeId.value
+        )
+      ) {
+        selectedKnowledgeScopeId.value = null;
+      }
     } catch (error) {
       console.error('Failed to fetch knowledge explorer:', error);
     }
@@ -577,14 +617,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function renameKnowledgeNode(nodeId: string, title: string) {
+    await saveKnowledgeNode(nodeId, { title });
+  }
+
+  async function saveKnowledgeNode(nodeId: string, updates: KnowledgeNodeUpdate) {
     explorerBusy.value = true;
     try {
-      const node = await api.updateKnowledgeNode(nodeId, { title });
+      const node = await api.updateKnowledgeNode(nodeId, updates);
       if (currentNode.value?.id === nodeId) currentNode.value = node;
       outline.value = outline.value.map((entry) =>
-        entry.id === nodeId ? { ...entry, title: node.title } : entry
+        entry.id === nodeId
+          ? { ...entry, title: node.title, summary: node.summary, type: node.type }
+          : entry
       );
       await fetchKnowledgeExplorer();
+      return node;
     } catch (error) {
       console.error(`Failed to rename knowledge node ${nodeId}:`, error);
       throw error;
@@ -684,15 +731,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function fetchStrategyAgents() {
     try {
       const response = await api.getStrategyAgents();
-      strategyAgents.value = response.agents;
+      strategyAgents.value = [
+        {
+          strategy_agent_id: 'auto',
+          label: 'Auto',
+          description: 'Let the Agent choose for each question.',
+        },
+        ...response.agents,
+      ];
       if (
         !strategyAgents.value.some(
           (agent) => agent.strategy_agent_id === selectedStrategyAgentId.value
         )
       ) {
         selectedStrategyAgentId.value =
-          response.default_strategy_agent_id ||
-          defaultStrategyAgentId();
+          defaultStrategyAgentId() ||
+          response.default_strategy_agent_id;
       }
     } catch (error) {
       console.error('Failed to fetch strategy agents:', error);
@@ -714,6 +768,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
       selectedStrategyAgentId.value =
         currentSession.value?.strategy_agent_id || defaultStrategyAgentId();
+      selectedKnowledgeScopeId.value =
+        currentSession.value?.knowledge_scope_id || null;
       selectedAnswerStyleId.value =
         currentSession.value?.default_answer_style_id || null;
       void fetchAgentState(sessionId);
@@ -746,10 +802,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const creatingSession = currentSession.value.session_id === undefined;
     const targetFolderId = creatingSession ? newSessionFolderId.value : null;
     try {
-      const strategyAgentId =
-        currentSession.value?.session_id === undefined
-          ? selectedStrategyAgentId.value || undefined
-          : undefined;
+      const strategyAgentId = selectedStrategyAgentId.value || undefined;
       const conversationModel =
         currentSession.value?.session_id === undefined && selectedProviderProfile.value
           ? {
@@ -761,16 +814,25 @@ export const useWorkspaceStore = defineStore('workspace', () => {
               model: selectedProviderProfile.value.model,
             }
           : undefined;
-      const response = await api.askStream(
-        question,
-        currentSession.value?.session_id,
-        conversationModel,
-        selectedAnswerStyleId.value || undefined,
-        strategyAgentId,
-        {
-          onChunk: appendStreamingChunk,
-        }
-      );
+      const streamCallbacks = { onChunk: appendStreamingChunk };
+      const response = selectedKnowledgeScopeId.value
+        ? await api.askStream(
+            question,
+            currentSession.value?.session_id,
+            conversationModel,
+            selectedAnswerStyleId.value || undefined,
+            strategyAgentId,
+            streamCallbacks,
+            selectedKnowledgeScopeId.value
+          )
+        : await api.askStream(
+            question,
+            currentSession.value?.session_id,
+            conversationModel,
+            selectedAnswerStyleId.value || undefined,
+            strategyAgentId,
+            streamCallbacks
+          );
       const latestAssistant = latestAssistantMessage(response.session);
       const responseAnchors =
         response.answer.anchors !== undefined
@@ -785,6 +847,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
       selectedStrategyAgentId.value =
         response.session.strategy_agent_id || defaultStrategyAgentId();
+      selectedKnowledgeScopeId.value =
+        response.session.knowledge_scope_id || null;
       selectedAnswerStyleId.value =
         response.session.default_answer_style_id || null;
       if (
@@ -1033,6 +1097,27 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     draftQuestion.value = question;
   }
 
+  function prepareKnowledgeFollowUp(nodeId: string, title: string) {
+    const findFolderId = (nodes: ExplorerTreeNode[]): string | null | undefined => {
+      for (const node of nodes) {
+        if (node.kind === 'item') {
+          const itemId = String(
+            node.location?.item_id || node.item?.item_id || node.item?.id || ''
+          );
+          if (itemId === nodeId) return node.location?.folder_id || null;
+          continue;
+        }
+        const found = findFolderId(node.children || []);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    const nodeScopeId = findFolderId(knowledgeExplorerTree.value);
+    if (nodeScopeId !== undefined) selectedKnowledgeScopeId.value = nodeScopeId;
+    draftQuestion.value = `围绕知识点「${title}」继续追问：`;
+    activeTab.value = 'chat';
+  }
+
   async function generateKnowledgeFromSelection(
     payload: SelectionActionPayload,
     promptKind: SelectionKnowledgePromptKind
@@ -1092,6 +1177,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     focusedAgentMessageId.value = null;
     selectedProviderProfile.value = nextProfile;
     selectedStrategyAgentId.value = defaultStrategyAgentId();
+    selectedKnowledgeScopeId.value = null;
     selectedAnswerStyleId.value = null;
     newSessionFolderId.value = folderId === undefined
       ? conversationBaseFolderId.value
@@ -1149,8 +1235,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     configuredModelProfiles,
     answerStyles,
     strategyAgents,
+    knowledgeScopeOptions,
     selectedAnswerStyleId,
     selectedStrategyAgentId,
+    selectedKnowledgeScopeId,
     selectedProviderProfile,
     draftQuestion,
     newSessionFolderId,
@@ -1165,6 +1253,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fetchKnowledgeExplorer,
     organizeKnowledgeExplorer,
     renameKnowledgeNode,
+    saveKnowledgeNode,
     createExplorerFolder,
     renameExplorerFolder,
     deleteExplorerFolder,
@@ -1178,6 +1267,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     openAgentStateForMessage,
     acceptSuggestedDrafts,
     setDraftQuestion,
+    prepareKnowledgeFollowUp,
     generateKnowledgeFromSelection,
     updateDefaultOptions,
     createCredential,

@@ -1,6 +1,7 @@
 import json
 import re
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from queue import Queue
 from threading import Thread
@@ -262,7 +263,14 @@ def create_app(
             provider_gateway=resolved_provider_gateway,
             user_profile_repository=user_profile,
         ),
-        context_selector=ContextSelector(knowledge_repository),
+        context_selector=ContextSelector(
+            knowledge_repository,
+            scope_node_ids_resolver=lambda scope_id: explorer.list_item_ids_in_folder(
+                item_type="knowledge_node",
+                folder_id=scope_id,
+                include_descendants=True,
+            ),
+        ),
         provider_gateway=resolved_provider_gateway,
         knowledge_job_repository=resolved_knowledge_job_repository,
         answer_style_repository=answer_styles,
@@ -460,15 +468,45 @@ def create_app(
             or (existing_record.provider_profile if existing_record is not None else None)
         )
         strategy_agent_id = (
-            existing_record.strategy_agent_id
+            payload.strategy_agent_id
+            or (
+                existing_record.strategy_agent_id
+                if existing_record is not None
+                else configured_default_strategy_agent_id()
+            )
+        )
+        base_branch_context = (
+            existing_record.branch_context
             if existing_record is not None
-            else payload.strategy_agent_id or configured_default_strategy_agent_id()
+            else SessionBranchContext()
+        )
+        requested_scope_id = (
+            payload.knowledge_scope_id
+            if "knowledge_scope_id" in payload.model_fields_set
+            else base_branch_context.knowledge_scope_id
+        )
+        scope_label = "全部知识"
+        if requested_scope_id is not None:
+            try:
+                scope_folder = explorer.get_folder(requested_scope_id)
+            except KeyError as exc:
+                raise HTTPException(status_code=400, detail="Unknown knowledge scope") from exc
+            if scope_folder.scope != "knowledge":
+                raise HTTPException(status_code=400, detail="Invalid knowledge scope")
+            scope_label = scope_folder.path_cached.strip("/") or scope_folder.name
+        scope_changed = requested_scope_id != base_branch_context.knowledge_scope_id
+        requested_branch_context = replace(
+            base_branch_context,
+            knowledge_scope_id=requested_scope_id,
+            active_node_ids=[] if scope_changed else list(base_branch_context.active_node_ids),
+            summary_node_ids=[] if scope_changed else list(base_branch_context.summary_node_ids),
+            active_symbols={} if scope_changed else dict(base_branch_context.active_symbols),
         )
         result = _answer_question(
             question=payload.question,
             session_id=session_id,
             provider_profile=provider_profile,
-            branch_context=existing_record.branch_context if existing_record is not None else None,
+            branch_context=requested_branch_context,
             answer_style_id=payload.answer_style_id,
             strategy_agent_id=strategy_agent_id,
             stream_callback=stream_callback,
@@ -476,6 +514,9 @@ def create_app(
 
         user_message = SessionMessage(role="user", content=payload.question)
         orchestration_plan = result.orchestration_plan or result.action.orchestration_plan
+        if orchestration_plan is not None:
+            orchestration_plan.knowledge_scope_id = requested_scope_id
+            orchestration_plan.knowledge_scope_label = scope_label
         assistant_message = SessionMessage(
             role="assistant",
             content=result.answer.assistant_text,
@@ -553,6 +594,7 @@ def create_app(
             icon=icon,
             conversation_model=conversation_model,
             provider_profile=provider_profile,
+            strategy_agent_id=strategy_agent_id,
         )
         sessions.save_working_turn(session_id, None)
         if result.answer.knowledge_job_id is not None:
@@ -1251,6 +1293,8 @@ def create_app(
                     "status": node.status,
                     "symbols": node.symbols,
                     "symbol_scopes": node.symbol_scopes,
+                    "revision": node.revision,
+                    "updated_at": node.updated_at,
                 }
             }
         )
@@ -1264,7 +1308,17 @@ def create_app(
             node = knowledge_repository.get_node(node_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Node not found") from exc
-        knowledge_repository.save_node(replace(node, title=payload.title))
+        updates = payload.model_dump(exclude_none=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No knowledge changes supplied")
+        knowledge_repository.save_node(
+            replace(
+                node,
+                **updates,
+                revision=node.revision + 1,
+                updated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+        )
         return get_node(node_id)
 
     @app.get("/api/sessions/{session_id}")
@@ -1427,6 +1481,7 @@ def create_app(
                         ),
                         default_answer_style_id=record.default_answer_style_id,
                         strategy_agent_id=record.strategy_agent_id,
+                        knowledge_scope_id=record.branch_context.knowledge_scope_id,
                         branch=_branch_context_to_schema(
                             record.branch_context
                         ),
@@ -2113,6 +2168,7 @@ def _record_to_session_schema(record: SessionRecord) -> SessionSchema:
         provider_profile=_provider_profile_to_schema(record.provider_profile),
         default_answer_style_id=record.default_answer_style_id,
         strategy_agent_id=record.strategy_agent_id,
+        knowledge_scope_id=record.branch_context.knowledge_scope_id,
         branch=_branch_context_to_schema(record.branch_context),
         messages=[_session_message_to_schema(message) for message in record.messages],
     )
@@ -2172,6 +2228,7 @@ def _meaningful_branch_context(
             branch_context.active_node_ids,
             branch_context.summary_node_ids,
             branch_context.active_symbols,
+            branch_context.knowledge_scope_id,
         ]
     ):
         return branch_context
@@ -2227,6 +2284,10 @@ def _orchestration_plan_to_schema(plan: OrchestrationPlan) -> OrchestrationPlanS
             )
             for draft in plan.candidate_drafts
         ],
+        strategy_mode=plan.strategy_mode,
+        strategy_reason=plan.strategy_reason,
+        knowledge_scope_id=plan.knowledge_scope_id,
+        knowledge_scope_label=plan.knowledge_scope_label,
     )
 
 
@@ -2313,6 +2374,7 @@ def _compact_session_record(
             active_node_ids=active_node_ids,
             summary_node_ids=merged_summary_node_ids,
             active_symbols=dict(record.branch_context.active_symbols),
+            knowledge_scope_id=record.branch_context.knowledge_scope_id,
         ),
         messages=[*record.messages, compact_message],
     )
@@ -2594,6 +2656,7 @@ def _fork_branch_context(
         active_node_ids=active_node_ids,
         summary_node_ids=summary_node_ids,
         active_symbols=active_symbols,
+        knowledge_scope_id=parent_record.branch_context.knowledge_scope_id,
     )
 
 

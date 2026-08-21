@@ -122,6 +122,10 @@ export interface OrchestrationPlan {
   profile_layers_used: string[];
   profile_context_summary?: string | null;
   candidate_drafts: KnowledgeDraftCandidate[];
+  strategy_mode: 'top-down' | 'raw';
+  strategy_reason: string;
+  knowledge_scope_id?: string | null;
+  knowledge_scope_label: string;
 }
 
 export interface AgentStateItem {
@@ -227,6 +231,7 @@ export interface Session {
   provider_profile?: ProviderProfile;
   default_answer_style_id?: string | null;
   strategy_agent_id?: string;
+  knowledge_scope_id?: string | null;
   branch: SessionBranch;
   messages: SessionMessage[];
 }
@@ -239,6 +244,7 @@ export interface SessionListItem {
   provider_profile?: ProviderProfile;
   default_answer_style_id?: string | null;
   strategy_agent_id?: string;
+  knowledge_scope_id?: string | null;
   branch: SessionBranch;
   message_count: number;
   last_message?: SessionMessage;
@@ -406,7 +412,11 @@ export interface KnowledgeNode {
   status: string;
   symbols: Record<string, string>;
   symbol_scopes?: Record<string, Record<string, string>>;
+  revision: number;
+  updated_at?: string | null;
 }
+
+export type KnowledgeNodeUpdate = Partial<Pick<KnowledgeNode, 'title' | 'summary' | 'detail' | 'type'>>;
 
 export interface CredentialSummary {
   credential_id: string;
@@ -523,7 +533,7 @@ export const api = {
     return response.data.node;
   },
 
-  async updateKnowledgeNode(nodeId: string, payload: { title: string }): Promise<KnowledgeNode> {
+  async updateKnowledgeNode(nodeId: string, payload: KnowledgeNodeUpdate): Promise<KnowledgeNode> {
     const response = await client.patch<{ node: KnowledgeNode }>(`/nodes/${nodeId}`, payload);
     return response.data.node;
   },
@@ -610,7 +620,8 @@ export const api = {
     sessionId?: string,
     conversationModel?: DefaultModelSelection,
     answerStyleId?: string,
-    strategyAgentId?: string
+    strategyAgentId?: string,
+    knowledgeScopeId?: string | null
   ): Promise<AskResponse> {
     const response = await client.post<AskResponse>('/ask', {
       question,
@@ -618,6 +629,7 @@ export const api = {
       conversation_model: conversationModel,
       answer_style_id: answerStyleId,
       strategy_agent_id: strategyAgentId,
+      knowledge_scope_id: knowledgeScopeId,
     });
     return response.data;
   },
@@ -628,7 +640,8 @@ export const api = {
     conversationModel?: DefaultModelSelection,
     answerStyleId?: string,
     strategyAgentId?: string,
-    callbacks: AskStreamCallbacks = {}
+    callbacks: AskStreamCallbacks = {},
+    knowledgeScopeId?: string | null
   ): Promise<AskResponse> {
     const response = await fetch('/api/ask/stream', {
       method: 'POST',
@@ -641,6 +654,7 @@ export const api = {
         conversation_model: conversationModel,
         answer_style_id: answerStyleId,
         strategy_agent_id: strategyAgentId,
+        knowledge_scope_id: knowledgeScopeId,
       }),
     });
     if (!response.ok) {

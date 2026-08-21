@@ -541,7 +541,7 @@ describe('workspace store provider configuration', () => {
     expect(store.selectedAnswerStyleId).toBeNull();
   });
 
-  it('loads strategy agents and defaults new sessions to top-down', async () => {
+  it('adds Auto and defaults new sessions to per-question Agent selection', async () => {
     vi.mocked(api.getStrategyAgents).mockResolvedValue({
       default_strategy_agent_id: 'top-down',
       agents: [
@@ -568,15 +568,16 @@ describe('workspace store provider configuration', () => {
 
     expect(api.getStrategyAgents).toHaveBeenCalledTimes(1);
     expect(store.strategyAgents.map((agent) => agent.strategy_agent_id)).toEqual([
+      'auto',
       'top-down',
       'raw',
     ]);
-    expect(store.selectedStrategyAgentId).toBe('top-down');
+    expect(store.selectedStrategyAgentId).toBe('auto');
 
     store.selectedStrategyAgentId = 'raw';
     store.newSession();
 
-    expect(store.selectedStrategyAgentId).toBe('top-down');
+    expect(store.selectedStrategyAgentId).toBe('auto');
   });
 
   it('syncs selectedAnswerStyleId and selectedStrategyAgentId when selecting a session', async () => {

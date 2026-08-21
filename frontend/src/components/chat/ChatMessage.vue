@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { KnowledgeAnchor, SessionMessage } from '../../services/api'
+import type { KnowledgeAnchor, OutlineNode, SessionMessage } from '../../services/api'
 import { extractMarkdownHeadings } from '../../services/markdown'
 import { buildWorkspaceHref } from '../../services/workspaceNavigation'
 import MarkdownContent from '../common/MarkdownContent.vue'
@@ -11,16 +11,55 @@ const props = defineProps<{
   canRegenerate?: boolean
   isLoading?: boolean
   sessionId?: string | null
+  knowledgeNodes?: OutlineNode[]
 }>()
 
 const emit = defineEmits<{
   (event: 'copy', content: string): void
   (event: 'regenerate', messageId: string): void
+  (event: 'open-node', nodeId: string): void
 }>()
 
 const copied = ref(false)
 const isAnswerCollapsed = ref(false)
 const assistantAnchors = computed(() => props.message.assistant_context.anchors || [])
+const referencedNodes = computed(() => {
+  const nodesById = new Map((props.knowledgeNodes || []).map((node) => [node.id, node]))
+  return props.message.assistant_context.referenced_node_ids.flatMap((nodeId) => {
+    const node = nodesById.get(nodeId)
+    return node ? [{ node_id: node.id, title: node.title, summary: node.summary, type: node.type }] : []
+  })
+})
+const referencedNodeIds = computed(() => new Set(referencedNodes.value.map((node) => node.node_id)))
+const knowledgeChangeAnchors = computed(() =>
+  assistantAnchors.value.filter((anchor) => !anchor.node_id || !referencedNodeIds.value.has(anchor.node_id))
+)
+const agentPlan = computed(() => props.message.assistant_context.orchestration_plan || null)
+const strategyLabel = computed(() =>
+  agentPlan.value?.strategy_mode === 'top-down' ? 'Top Down' : 'Raw'
+)
+const intentLabel = computed(() => {
+  const intent = agentPlan.value?.intent || ''
+  const labels: Record<string, string> = {
+    broad_exploratory: '系统理解与知识梳理',
+    broad_overview: '建立整体理解',
+    teach_concept: '理解一个概念',
+    definition: '查清定义与边界',
+    proof: '理解或验证证明',
+    compact: '整理当前上下文',
+    clarify: '澄清问题',
+  }
+  if (labels[intent]) return labels[intent]
+  if (!intent) return '理解当前问题'
+  if (intent.length > 32 || /[_\n]/.test(intent)) return '理解当前问题的核心诉求'
+  return intent
+})
+const knowledgeResultLabel = computed(() => {
+  const candidates = agentPlan.value?.candidate_drafts.length || 0
+  if (candidates) return `发现 ${candidates} 个候选知识点`
+  if (knowledgeChangeAnchors.value.length) return `知识库有 ${knowledgeChangeAnchors.value.length} 项变化`
+  return '本轮不修改知识库'
+})
 const isAssistant = computed(() => props.message.role === 'assistant')
 const roleLabel = computed(() => (isAssistant.value ? props.assistantName || 'Gauss' : 'You'))
 const questionPreview = computed(() => props.message.content.replace(/\s+/g, ' ').trim())
@@ -151,14 +190,40 @@ const copyContent = async () => {
       </div>
 
       <div
-        v-if="isAssistant && assistantAnchors.length"
+        v-if="isAssistant && referencedNodes.length"
+        v-show="!isAnswerCollapsed"
+        class="knowledge-citations"
+        data-knowledge-citations
+      >
+        <div class="citation-heading">
+          <span>本轮引用</span>
+          <small>{{ referencedNodes.length }} 个知识点 · 点击查看完整内容</small>
+        </div>
+        <button
+          v-for="(citation, index) in referencedNodes"
+          :key="citation.node_id"
+          type="button"
+          :data-citation-node-id="citation.node_id"
+          @click="emit('open-node', citation.node_id)"
+        >
+          <span class="citation-index">K{{ index + 1 }}</span>
+          <span class="citation-copy">
+            <strong>{{ citation.title }}</strong>
+            <small>{{ citation.summary }}</small>
+          </span>
+          <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+        </button>
+      </div>
+
+      <div
+        v-if="isAssistant && knowledgeChangeAnchors.length"
         v-show="!isAnswerCollapsed"
         class="knowledge-links"
         data-anchor-list
       >
-        <span class="knowledge-label">Saved ideas</span>
+        <span class="knowledge-label">知识库变化</span>
         <template
-          v-for="anchor in assistantAnchors"
+          v-for="anchor in knowledgeChangeAnchors"
           :key="anchor.anchor_id"
         >
           <a
@@ -184,24 +249,39 @@ const copyContent = async () => {
         </template>
       </div>
 
-      <div
-        v-if="isAssistant && message.assistant_context.orchestration_plan"
+      <details
+        v-if="isAssistant && agentPlan"
         v-show="!isAnswerCollapsed"
         class="response-details"
         data-agent-plan-strip
       >
-        <p>{{ message.assistant_context.orchestration_plan.user_visible_summary }}</p>
-        <a
-          :href="detailsHref"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Open response details in a new tab"
-          data-response-details-link
-        >
-          View details
-          <span class="material-symbols-outlined">open_in_new</span>
-        </a>
-      </div>
+        <summary>
+          <span class="agent-plan-label">Agent</span>
+          <strong>{{ strategyLabel }}</strong>
+          <span>{{ agentPlan.knowledge_scope_label }}</span>
+          <span>引用 {{ referencedNodes.length }}</span>
+          <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
+        </summary>
+        <div class="agent-plan-body">
+          <dl>
+            <div><dt>我理解了什么</dt><dd>{{ intentLabel }}</dd></div>
+            <div><dt>我准备怎么做</dt><dd>{{ agentPlan.user_visible_summary }}</dd></div>
+            <div v-if="agentPlan.strategy_reason"><dt>为什么这样做</dt><dd>{{ agentPlan.strategy_reason }}</dd></div>
+            <div><dt>我用了什么</dt><dd>{{ agentPlan.knowledge_scope_label }} · {{ referencedNodes.length }} 个引用</dd></div>
+            <div><dt>我产生了什么</dt><dd>{{ knowledgeResultLabel }}</dd></div>
+          </dl>
+          <a
+            :href="detailsHref"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open response details in a new tab"
+            data-response-details-link
+          >
+            View details · 查看完整处理详情
+            <span class="material-symbols-outlined">open_in_new</span>
+          </a>
+        </div>
+      </details>
 
       <div
         v-if="isAssistant && !isThinking"
@@ -519,6 +599,93 @@ const copyContent = async () => {
   font-size: 13px;
 }
 
+.knowledge-citations {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 11px;
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.075);
+  font-family: var(--font-sans);
+}
+
+.citation-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-on-surface-variant);
+}
+
+.citation-heading span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.citation-heading small {
+  font-size: 9px;
+}
+
+.knowledge-citations > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid rgb(var(--color-on-surface-rgb) / 0.065);
+  border-radius: 9px;
+  color: var(--color-on-surface);
+  background: var(--color-surface-container-lowest);
+  text-align: left;
+}
+
+.knowledge-citations > button:hover,
+.knowledge-citations > button:focus-visible {
+  border-color: rgb(var(--color-primary-rgb) / 0.24);
+  background: var(--color-primary-fixed);
+}
+
+.citation-index {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--color-primary);
+  background: var(--color-primary-fixed);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.citation-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.citation-copy strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.citation-copy small {
+  overflow: hidden;
+  color: var(--color-on-surface-variant);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-citations .material-symbols-outlined {
+  color: var(--color-on-surface-variant);
+  font-size: 16px;
+}
+
 .knowledge-links {
   display: flex;
   flex-wrap: wrap;
@@ -571,10 +738,6 @@ const copyContent = async () => {
 }
 
 .response-details {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
   margin-top: 8px;
   padding: 8px 10px;
   border-radius: 8px;
@@ -582,9 +745,68 @@ const copyContent = async () => {
   font-family: var(--font-sans);
 }
 
-.response-details p {
-  margin: 0;
+.response-details summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  list-style: none;
+  cursor: pointer;
   color: var(--color-on-surface-variant);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.response-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.response-details summary strong {
+  color: var(--color-primary);
+}
+
+.response-details summary .material-symbols-outlined {
+  margin-left: auto;
+  transition: transform 140ms ease;
+}
+
+.response-details[open] summary .material-symbols-outlined {
+  transform: rotate(180deg);
+}
+
+.agent-plan-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.agent-plan-body {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.075);
+}
+
+.agent-plan-body dl {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.agent-plan-body dl > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.agent-plan-body dt {
+  color: var(--color-on-surface-variant);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.agent-plan-body dd {
+  margin: 0;
+  color: var(--color-on-surface);
   font-size: 10px;
   line-height: 1.45;
 }
