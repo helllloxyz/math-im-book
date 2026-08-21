@@ -26,6 +26,7 @@ describe('ExplorerTree', () => {
         created_at: '2026-04-19T00:00:00Z',
         updated_at: '2026-04-19T00:00:00Z',
         sort_order: 1000,
+        scope_id: 'scope-linear-algebra',
       },
       children: [
         {
@@ -80,6 +81,8 @@ describe('ExplorerTree', () => {
     expect(wrapper.text()).toContain('Linear Algebra');
     expect(wrapper.text()).toContain('Linear Map');
     expect(wrapper.find('[data-explorer-folder="folder-1"]').exists()).toBe(true);
+    expect(wrapper.get('[data-explorer-scope-root="true"]').classes()).toContain('explorer-tree-scope-root');
+    expect(wrapper.find('.explorer-tree-icon').exists()).toBe(false);
     expect(wrapper.find('[data-explorer-item="linear-map"]').classes()).toContain('tree-item-active');
 
     await wrapper.get('[data-explorer-folder-toggle="folder-1"]').trigger('click');
@@ -182,6 +185,7 @@ describe('ExplorerTree', () => {
     });
 
     await wrapper.get('[data-explorer-folder-menu="folder-1"]').trigger('click');
+    expect(wrapper.get('[data-explorer-folder-menu="folder-1"] .material-symbols-outlined').text()).toBe('more_vert');
     await wrapper.get('[data-explorer-rename-folder="folder-1"]').trigger('click');
     const body = new DOMWrapper(document.body);
     await body.get('[data-explorer-name-input]').setValue('Foundations');

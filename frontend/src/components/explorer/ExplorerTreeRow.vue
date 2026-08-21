@@ -5,9 +5,11 @@
       :class="{
         'explorer-tree-drop-target': dragOverFolder,
         'tree-folder-active': isFolderActive,
+        'explorer-tree-scope-root': isScopeRoot,
       }"
       :style="rowIndent"
       :data-explorer-folder="folderId"
+      :data-explorer-scope-root="isScopeRoot ? 'true' : undefined"
       role="button"
       tabindex="0"
       :aria-expanded="isExpanded ? 'true' : 'false'"
@@ -31,9 +33,6 @@
           {{ isExpanded ? 'expand_more' : 'chevron_right' }}
         </span>
       </button>
-      <span class="material-symbols-outlined explorer-tree-icon" aria-hidden="true">
-        {{ isExpanded ? 'folder_open' : 'folder' }}
-      </span>
       <span class="explorer-tree-label">{{ node.folder?.name || 'Untitled' }}</span>
       <span class="explorer-tree-count" :aria-label="`${folderItemCount} items`">
         {{ folderItemCount }}
@@ -48,7 +47,7 @@
           :aria-expanded="actionMenuOpen ? 'true' : 'false'"
           @click.stop="actionMenuOpen = !actionMenuOpen"
         >
-          <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
+          <span class="material-symbols-outlined" aria-hidden="true">more_vert</span>
         </button>
         <div v-if="actionMenuOpen" class="explorer-tree-menu" role="menu">
           <button
@@ -74,7 +73,7 @@
       </div>
     </div>
 
-    <div v-if="isExpanded" class="explorer-tree-children">
+    <div v-if="isExpanded" class="explorer-tree-children" :style="guideIndent">
       <ExplorerTreeRow
         v-for="child in node.children"
         :key="nodeKey(child)"
@@ -184,7 +183,7 @@
         :aria-expanded="actionMenuOpen ? 'true' : 'false'"
         @click.stop="actionMenuOpen = !actionMenuOpen"
       >
-        <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
+        <span class="material-symbols-outlined" aria-hidden="true">more_vert</span>
       </button>
       <div v-if="actionMenuOpen" class="explorer-tree-menu" role="menu">
         <button type="button" role="menuitem" :data-explorer-move-item="currentItemId" @click.stop="requestMoveItem">
@@ -272,6 +271,10 @@ const nodeKey = (node: ExplorerTreeNode) =>
 
 const folderId = computed(() => props.node.folder?.folder_id || '');
 const isFolderActive = computed(() => props.selectedFolderId === folderId.value);
+const isScopeRoot = computed(() => (
+  Boolean(props.node.folder?.scope_id)
+  && props.node.folder?.parent_folder_id == null
+));
 const isExpanded = computed(() => props.forceExpanded || expanded.value);
 const currentItemId = computed(() => String(
   props.node.location?.item_id || props.node.item?.item_id || props.node.item?.session_id || props.node.item?.id || ''
@@ -288,6 +291,9 @@ const itemCategory = computed(() =>
 );
 const isActive = computed(() => props.currentItemId === currentItemId.value);
 const rowIndent = computed(() => ({ paddingLeft: `${props.depth * 18 + 4}px` }));
+const guideIndent = computed(() => ({
+  '--explorer-guide-left': `${props.depth * 18 + 13}px`,
+}));
 const canEditIcon = computed(() =>
   props.editableItemIcons || (props.editableSessionIcons && isSessionItem.value)
 );
