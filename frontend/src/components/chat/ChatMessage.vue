@@ -22,6 +22,7 @@ const emit = defineEmits<{
 
 const copied = ref(false)
 const isAnswerCollapsed = ref(false)
+const isQuestionExpanded = ref(false)
 const assistantAnchors = computed(() => props.message.assistant_context.anchors || [])
 const referencedNodes = computed(() => {
   const nodesById = new Map((props.knowledgeNodes || []).map((node) => [node.id, node]))
@@ -66,6 +67,9 @@ const questionPreview = computed(() => props.message.content.replace(/\s+/g, ' '
 const answerOutline = computed(() => extractMarkdownHeadings(props.message.content))
 const answerContentId = computed(
   () => `answer-${props.message.message_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+)
+const questionContentId = computed(
+  () => `question-${props.message.message_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 )
 const isThinking = computed(
   () =>
@@ -156,15 +160,32 @@ const copyContent = async () => {
         <p v-else class="answer-outline-empty">No section headings in this answer.</p>
       </nav>
 
-      <details v-if="!isAssistant" class="question-details" data-question-details>
-        <summary data-question-summary>
-          <span class="question-label">Question</span>
-          <span class="question-preview">{{ questionPreview }}</span>
+      <div v-if="!isAssistant" class="question-details" data-question-details>
+        <button
+          class="question-toggle-button"
+          type="button"
+          :aria-controls="questionContentId"
+          :aria-expanded="isQuestionExpanded"
+          :aria-label="isQuestionExpanded ? 'Collapse question' : 'Expand question'"
+          :title="isQuestionExpanded ? 'Collapse question' : 'Expand question'"
+          data-question-summary
+          @click="isQuestionExpanded = !isQuestionExpanded"
+        >
           <span class="material-symbols-outlined question-toggle" aria-hidden="true">
             expand_more
           </span>
-        </summary>
+        </button>
+        <span
+          v-if="!isQuestionExpanded"
+          :id="questionContentId"
+          class="question-preview"
+          data-selection-source="chat-message"
+          :data-message-id="message.message_id"
+          :data-session-id="sessionId || undefined"
+        >{{ questionPreview }}</span>
         <div
+          v-else
+          :id="questionContentId"
           class="message-content question-content"
           data-selection-source="chat-message"
           :data-message-id="message.message_id"
@@ -172,7 +193,7 @@ const copyContent = async () => {
         >
           <MarkdownContent :content="message.content" />
         </div>
-      </details>
+      </div>
 
       <div
         v-if="isAssistant"
@@ -458,11 +479,15 @@ const copyContent = async () => {
   width: auto;
   max-width: 82%;
   padding: 8px 11px;
-  border: 1px solid rgb(var(--color-primary-rgb) / 0.14);
+  border: 1px solid rgb(var(--color-accent-rgb) / 0.13);
   border-radius: 14px 14px 4px 14px;
   color: var(--color-on-surface);
-  background: var(--color-primary-fixed);
-  box-shadow: 0 1px 0 rgb(var(--color-primary-rgb) / 0.06);
+  background: color-mix(
+    in srgb,
+    var(--color-accent-container) 62%,
+    var(--color-surface-container-lowest)
+  );
+  box-shadow: 0 1px 0 rgb(var(--color-accent-rgb) / 0.045);
   font-family: var(--font-sans);
   font-size: 13px;
 }
@@ -473,67 +498,74 @@ const copyContent = async () => {
   line-height: 1.58;
 }
 
-.question-details summary {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-  list-style: none;
+.question-toggle-button {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--color-accent) 54%, var(--color-on-surface-variant));
+  background: transparent;
   cursor: pointer;
   user-select: none;
+  transition: color 140ms ease, background-color 140ms ease;
 }
 
-.question-details summary::-webkit-details-marker {
-  display: none;
+.question-details {
+  position: relative;
+  min-width: 0;
+  padding-right: 24px;
 }
 
-.question-details summary:focus-visible {
-  border-radius: 5px;
-  outline: 2px solid rgb(var(--color-primary-rgb) / 0.45);
-  outline-offset: 3px;
-}
-
-.question-label {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--color-primary) 82%, var(--color-on-surface));
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.question-toggle-button:focus-visible {
+  outline: 2px solid rgb(var(--color-accent-rgb) / 0.45);
+  outline-offset: 1px;
 }
 
 .question-preview {
+  display: -webkit-box;
   min-width: 0;
   overflow: hidden;
   color: var(--color-on-surface);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  line-height: 1.45;
+  user-select: text;
+  white-space: normal;
 }
 
 .question-toggle {
-  flex: 0 0 auto;
-  margin-left: 1px;
   color: var(--color-on-surface-variant);
   font-size: 16px;
   transition: transform 140ms ease;
 }
 
-.question-details[open] .question-toggle {
+.question-toggle-button:hover {
+  color: var(--color-accent);
+  background: rgb(var(--color-accent-rgb) / 0.07);
+}
+
+.question-toggle-button[aria-expanded="true"] .question-toggle {
   transform: rotate(180deg);
 }
 
-.question-details[open] .question-preview {
-  display: none;
-}
-
 .question-content {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgb(var(--color-primary-rgb) / 0.12);
+  margin-top: 0;
+  padding-right: 2px;
+  padding-bottom: 14px;
+  padding-top: 0;
+  user-select: text;
 }
 
 .user-message .message-content,
-.question-details summary {
+.question-toggle-button {
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.45;

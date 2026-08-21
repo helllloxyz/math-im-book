@@ -5,7 +5,7 @@ import { createPinia } from 'pinia';
 import ChatMessage from './ChatMessage.vue';
 
 describe('ChatMessage anchors', () => {
-  it('collapses user questions to a compact preview by default', () => {
+  it('shows user questions as a preview without a header by default', () => {
     const wrapper = mount(ChatMessage, {
       props: {
         message: {
@@ -28,10 +28,74 @@ describe('ChatMessage anchors', () => {
 
     expect(wrapper.classes()).toContain('user-message');
     expect(wrapper.get('.message-card').classes()).toContain('question-card');
-    const details = wrapper.get('[data-question-details]');
-    expect(details.attributes('open')).toBeUndefined();
-    expect(wrapper.get('[data-question-summary]').text()).toContain('介绍下群表示论');
-    expect(wrapper.get('.question-content').text()).toContain('介绍下群表示论');
+    const toggle = wrapper.get('[data-question-summary]');
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+    expect(toggle.text()).not.toContain('Question');
+    expect(toggle.text()).not.toContain('介绍下群表示论');
+    expect(wrapper.get('.question-preview').isVisible()).toBe(true);
+    expect(wrapper.get('.question-preview').text()).toContain('介绍下群表示论');
+    expect(wrapper.find('.question-content').exists()).toBe(false);
+  });
+
+  it('expands the full question and can collapse back to the preview', async () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: {
+          message_id: 'msg_long_user_question',
+          role: 'user',
+          content: '第一行问题内容。第二行继续补充。第三行给出条件。第四行提出最终问题。',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+          },
+          created_at: '2026-04-02T09:00:00Z',
+        },
+      },
+      global: {
+        plugins: [createPinia()],
+      },
+    });
+
+    const toggle = wrapper.get('[data-question-summary]');
+    await toggle.trigger('click');
+    expect(toggle.attributes('aria-expanded')).toBe('true');
+    expect(wrapper.find('.question-preview').exists()).toBe(false);
+    expect(wrapper.get('.question-content').isVisible()).toBe(true);
+
+    await toggle.trigger('click');
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+    expect(wrapper.get('.question-preview').isVisible()).toBe(true);
+    expect(wrapper.find('.question-content').exists()).toBe(false);
+  });
+
+  it('keeps the collapsed question preview selectable and associated with its message', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        sessionId: 'chat-1',
+        message: {
+          message_id: 'msg_user_question',
+          role: 'user',
+          content: '可以选中并复制的问题',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [],
+          },
+          created_at: '2026-04-02T09:00:00Z',
+        },
+      },
+      global: {
+        plugins: [createPinia()],
+      },
+    });
+
+    const preview = wrapper.get('.question-preview');
+    expect(preview.attributes('data-selection-source')).toBe('chat-message');
+    expect(preview.attributes('data-session-id')).toBe('chat-1');
+    expect(preview.attributes('data-message-id')).toBe('msg_user_question');
   });
 
   it('marks selectable chat content with source metadata', () => {
