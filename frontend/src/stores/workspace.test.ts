@@ -28,6 +28,7 @@ vi.mock('../services/api', () => ({
     updateCredential: vi.fn(),
     ask: vi.fn(),
     askStream: vi.fn(),
+    cancelAsk: vi.fn(),
     regenerate: vi.fn(),
     fork: vi.fn(),
     deleteSession: vi.fn(),
@@ -1928,6 +1929,42 @@ describe('workspace store provider configuration', () => {
 
     expect(store.errorMessage).toBe('Failed to send message. Check your provider settings and try again.');
     expect(store.loading).toBe(false);
+    expect(store.currentSession?.session_id).toBe('chat-1');
+  });
+
+  it('cancels an in-flight answer and restores the question for retry', async () => {
+    vi.mocked(api.cancelAsk).mockResolvedValue(undefined);
+    vi.mocked(api.askStream).mockImplementation(
+      async (_question, _sessionId, _model, _style, _strategy, callbacks) =>
+        new Promise((_, reject) => {
+          callbacks?.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+        })
+    );
+    const store = useWorkspaceStore();
+    store.currentSession = {
+      session_id: 'chat-1',
+      branch: {
+        active_node_ids: [],
+        summary_node_ids: [],
+        active_symbols: {},
+      },
+      messages: [],
+    } as any;
+
+    const pendingAsk = store.ask('Explain the proof.');
+    expect(store.askInFlight).toBe(true);
+
+    store.cancelAsk();
+    await pendingAsk;
+
+    expect(api.cancelAsk).toHaveBeenCalledTimes(1);
+    expect(store.askInFlight).toBe(false);
+    expect(store.errorMessage).toBe('Generation stopped.');
+    expect(store.draftQuestion).toBe('Explain the proof.');
     expect(store.currentSession?.session_id).toBe('chat-1');
   });
 

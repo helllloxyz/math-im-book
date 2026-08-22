@@ -295,6 +295,8 @@ export interface AskResponse {
 export interface AskStreamCallbacks {
   onChunk?: (delta: string) => void;
   onProgress?: (event: AgentProgressEvent) => void;
+  requestId?: string;
+  signal?: AbortSignal;
 }
 
 export interface AgentProgressEvent {
@@ -690,6 +692,7 @@ export const api = {
       },
       body: JSON.stringify({
         question,
+        request_id: callbacks.requestId,
         session_id: sessionId,
         conversation_model: conversationModel,
         answer_style_id: answerStyleId,
@@ -698,6 +701,7 @@ export const api = {
         knowledge_approval_policy: knowledgeApprovalPolicy,
         conversation_folder_id: conversationFolderId,
       }),
+      signal: callbacks.signal,
     });
     if (!response.ok) {
       throw new Error(`stream request failed with status ${response.status}`);
@@ -763,6 +767,16 @@ export const api = {
       throw new Error('stream ended without final payload');
     }
     return finalPayload;
+  },
+
+  async cancelAsk(requestId: string): Promise<void> {
+    const response = await fetch(`/api/ask/${encodeURIComponent(requestId)}/cancel`, {
+      method: 'POST',
+      keepalive: true,
+    });
+    if (!response.ok) {
+      throw new Error(`cancel request failed with status ${response.status}`);
+    }
   },
 
   async fork(

@@ -390,6 +390,48 @@ def test_planner_clamps_confidence_into_unit_interval() -> None:
     assert action.orchestration_plan.confidence == 1.0
 
 
+@pytest.mark.parametrize(
+    ("raw_confidence", "expected"),
+    [
+        ('"0.72"', 0.72),
+        ('"high"', 0.0),
+        ("null", 0.0),
+        ("true", 0.0),
+    ],
+)
+def test_planner_degrades_invalid_confidence_without_failing_answer(
+    raw_confidence: str,
+    expected: float,
+) -> None:
+    planner = QuestionPlanner(
+        provider_gateway=RecordingPlannerGateway(
+            ProviderResult(
+                output_text=(
+                    '{"route":"answer_only",'
+                    '"intent":"definition",'
+                    '"persistence_decision":"do_not_persist",'
+                    f'"confidence":{raw_confidence},'
+                    '"selected_node_ids":[],'
+                    '"detected_scope_ids":[],'
+                    '"profile_layers_used":[],'
+                    '"profile_context_summary":null,'
+                    '"candidate_drafts":[],'
+                    '"user_visible_summary":"Answer directly."}'
+                ),
+                provider_name="gemini",
+            )
+        )
+    )
+
+    action = planner.plan(
+        question="What is a linear map?",
+        nodes=[],
+        provider_profile=_provider_profile(),
+    )
+
+    assert action.orchestration_plan.confidence == expected
+
+
 def test_planner_rejects_candidate_drafts_that_are_not_objects() -> None:
     planner = QuestionPlanner(
         provider_gateway=RecordingPlannerGateway(

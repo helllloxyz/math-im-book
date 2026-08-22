@@ -35,6 +35,23 @@ def test_outline_endpoint_lists_knowledge_nodes(tmp_path) -> None:
     assert response.json()["nodes"][0]["id"] == "vector-space"
 
 
+def test_stream_question_can_be_cancelled_before_generation_starts(tmp_path) -> None:
+    session_store = FileSessionStore(tmp_path / "chats" / "sessions")
+    client = TestClient(create_app(session_store=session_store))
+    request_id = "ask-cancel-before-start"
+
+    cancel_response = client.post(f"/api/ask/{request_id}/cancel")
+    response = client.post(
+        "/api/ask/stream",
+        json={"question": "Explain compactness", "request_id": request_id},
+    )
+
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["status"] == "cancelled"
+    assert "Question generation cancelled" in response.text
+    assert session_store.list_recent_records() == []
+
+
 def test_patch_node_renames_title_without_changing_stable_id_or_content(tmp_path) -> None:
     repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
     repository.save_node(

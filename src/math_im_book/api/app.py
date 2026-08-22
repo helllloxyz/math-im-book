@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from queue import Queue
-from threading import Thread
+from threading import Event, Lock, Thread
 from time import perf_counter
 from typing import Callable, Literal
 from uuid import uuid4
@@ -77,7 +77,10 @@ from math_im_book.domain.models import (
 )
 from math_im_book.services.context_selector import ContextSelector
 from math_im_book.services.knowledge_jobs import InMemoryKnowledgeJobRepository
-from math_im_book.services.orchestrator import KnowledgeOrchestrator
+from math_im_book.services.orchestrator import (
+    KnowledgeOrchestrator,
+    QuestionCancelledError,
+)
 from math_im_book.services.planner import (
     PlannerError,
     QuestionPlanner,
@@ -260,6 +263,9 @@ def create_app(
         provider_gateway=resolved_provider_gateway,
         explorer_store=explorer,
     )
+    active_question_requests: dict[str, Event] = {}
+    cancelled_question_requests: set[str] = set()
+    question_requests_lock = Lock()
 
     orchestrator = KnowledgeOrchestrator(
         repository=knowledge_repository,
@@ -387,6 +393,7 @@ def create_app(
         knowledge_approval_policy: str,
         stream_callback: Callable[[str], None] | None = None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ):
         started_at = perf_counter()
         logger.info(
@@ -407,10 +414,20 @@ def create_app(
                 knowledge_approval_policy=knowledge_approval_policy,
                 stream_callback=stream_callback,
                 progress_callback=progress_callback,
+                cancel_check=cancel_check,
             )
+            if cancel_check is not None and cancel_check():
+                raise QuestionCancelledError("Question generation cancelled")
         except KeyError as exc:
             _log_question_failure(session_id, started_at, "configuration", exc)
             raise HTTPException(status_code=400, detail="Unknown answer style") from exc
+        except QuestionCancelledError as exc:
+            logger.info(
+                "Question generation cancelled: session=%s duration_ms=%d",
+                safe_log_value(session_id),
+                round((perf_counter() - started_at) * 1000),
+            )
+            raise HTTPException(status_code=499, detail=str(exc)) from exc
         except ProviderAuthenticationError as exc:
             _log_question_failure(session_id, started_at, "provider_authentication", exc)
             raise HTTPException(
@@ -448,6 +465,7 @@ def create_app(
         payload: AskRequestSchema,
         stream_callback: Callable[[str], None] | None = None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> AskResponseSchema:
         session_id = payload.session_id or f"chat-{uuid4().hex[:8]}"
         existing_record = (
@@ -567,7 +585,11 @@ def create_app(
             knowledge_approval_policy=knowledge_approval_policy,
             stream_callback=stream_callback,
             progress_callback=progress_callback,
+            cancel_check=cancel_check,
         )
+
+        if cancel_check is not None and cancel_check():
+            raise HTTPException(status_code=499, detail="Question generation cancelled")
 
         user_message = SessionMessage(role="user", content=payload.question)
         orchestration_plan = result.orchestration_plan or result.action.orchestration_plan
@@ -614,6 +636,8 @@ def create_app(
                 provider_options_payload=provider_options.load(),
                 provider_gateway=resolved_provider_gateway,
             )
+            if cancel_check is not None and cancel_check():
+                raise HTTPException(status_code=499, detail="Question generation cancelled")
         title = (
             existing_record.title
             if existing_record is not None and existing_record.title
@@ -728,6 +752,16 @@ def create_app(
 
     @app.post("/api/ask/stream")
     def ask_stream(payload: AskRequestSchema) -> StreamingResponse:
+        request_id = payload.request_id or f"ask-{uuid4().hex}"
+        cancel_event = Event()
+        with question_requests_lock:
+            if request_id in active_question_requests:
+                raise HTTPException(status_code=409, detail="Question request is already active")
+            if request_id in cancelled_question_requests:
+                cancel_event.set()
+                cancelled_question_requests.discard(request_id)
+            active_question_requests[request_id] = cancel_event
+
         def event_stream():
             queue: Queue[tuple[str, object] | None] = Queue()
             state: dict[str, object] = {}
@@ -738,6 +772,7 @@ def create_app(
                         payload,
                         stream_callback=lambda delta: queue.put(("chunk", delta)),
                         progress_callback=lambda event: queue.put(("progress", event)),
+                        cancel_check=cancel_event.is_set,
                     )
                     state["response"] = response
                 except HTTPException as exc:
@@ -747,32 +782,38 @@ def create_app(
 
             Thread(target=worker, daemon=True).start()
 
-            while True:
-                queued_event = queue.get()
-                if queued_event is None:
-                    break
-                event_name, event_payload = queued_event
-                if event_name == "chunk":
-                    yield _sse_event("chunk", {"delta": event_payload})
-                elif isinstance(event_payload, dict):
-                    yield _sse_event("progress", event_payload)
+            try:
+                while True:
+                    queued_event = queue.get()
+                    if queued_event is None:
+                        break
+                    event_name, event_payload = queued_event
+                    if event_name == "chunk":
+                        yield _sse_event("chunk", {"delta": event_payload})
+                    elif isinstance(event_payload, dict):
+                        yield _sse_event("progress", event_payload)
 
-            error = state.get("error")
-            if isinstance(error, HTTPException):
+                error = state.get("error")
+                if isinstance(error, HTTPException):
+                    yield _sse_event(
+                        "error",
+                        {"status_code": error.status_code, "detail": error.detail},
+                    )
+                    return
+
+                response = state.get("response")
+                if isinstance(response, AskResponseSchema):
+                    yield _sse_event("final", response.model_dump())
+                    return
                 yield _sse_event(
                     "error",
-                    {"status_code": error.status_code, "detail": error.detail},
+                    {"status_code": 500, "detail": "Stream response not available"},
                 )
-                return
-
-            response = state.get("response")
-            if isinstance(response, AskResponseSchema):
-                yield _sse_event("final", response.model_dump())
-                return
-            yield _sse_event(
-                "error",
-                {"status_code": 500, "detail": "Stream response not available"},
-            )
+            finally:
+                cancel_event.set()
+                with question_requests_lock:
+                    if active_question_requests.get(request_id) is cancel_event:
+                        active_question_requests.pop(request_id, None)
 
         return StreamingResponse(
             event_stream(),
@@ -783,6 +824,20 @@ def create_app(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.post("/api/ask/{request_id}/cancel")
+    def cancel_ask(request_id: str) -> dict[str, str]:
+        with question_requests_lock:
+            cancel_event = active_question_requests.get(request_id)
+            if cancel_event is None:
+                # Preserve an early cancellation until the streaming route has
+                # registered. Keep the set bounded for malformed callers.
+                if len(cancelled_question_requests) >= 1024:
+                    cancelled_question_requests.pop()
+                cancelled_question_requests.add(request_id)
+            else:
+                cancel_event.set()
+        return {"status": "cancelled", "request_id": request_id}
 
     def _sync_knowledge_job_to_session(job: object) -> None:
         session_id = getattr(job, "session_id", None)

@@ -226,6 +226,9 @@ class AskRequestSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    request_id: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+    ] | None = None
     session_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None = None
     provider_profile: ProviderProfileSchema | None = None
     conversation_model: DefaultModelSelectionSchema | None = None

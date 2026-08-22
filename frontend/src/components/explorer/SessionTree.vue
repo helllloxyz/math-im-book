@@ -40,11 +40,15 @@ const runAction = async (action: () => Promise<void>) => {
   }
 };
 
-const handleNewInquiry = (folderId: string | null) => store.newSession(folderId);
+const handleNewInquiry = (folderId: string | null) => {
+  store.newSession(folderId);
+  store.activeTab = 'chat';
+};
 
-const handleSelectItem = (itemType: ExplorerItemType, itemId: string) => {
+const handleSelectItem = async (itemType: ExplorerItemType, itemId: string) => {
   if (itemType === 'session') {
-    store.selectSession(itemId);
+    await store.selectSession(itemId);
+    store.activeTab = 'chat';
   }
 };
 

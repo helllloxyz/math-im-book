@@ -110,6 +110,28 @@ describe('ChatComposer', () => {
     expect(store.draftQuestion).toBe('')
   })
 
+  it('shows a stop control while answer generation can be cancelled', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const wrapper = mount(ChatComposer, {
+      props: {
+        loading: true,
+        canCancel: true,
+      },
+      global: {
+        plugins: [pinia],
+      },
+    })
+
+    const stopButton = wrapper.get('button[aria-label="Stop generating"]')
+    expect(wrapper.find('button[aria-label="Send message"]').exists()).toBe(false)
+
+    await stopButton.trigger('click')
+
+    expect(wrapper.emitted('cancel')).toHaveLength(1)
+  })
+
   it('lets the user choose the knowledge approval policy', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)

@@ -164,7 +164,12 @@
       </div>
 
       <footer v-if="activeTab !== 'agent'" class="composer-dock">
-        <ChatComposer :loading="loading" @ask="store.ask" />
+        <ChatComposer
+          :loading="loading"
+          :can-cancel="askInFlight"
+          @ask="store.ask"
+          @cancel="store.cancelAsk"
+        />
       </footer>
       </template>
     </main>
@@ -194,6 +199,7 @@ const {
   currentNode,
   outline,
   loading,
+  askInFlight,
   activeTab,
   agentRunSteps,
   knowledgeApprovalBusyMessageIds,
@@ -223,6 +229,21 @@ const workspaceTitle = computed(() => {
 
 const scrollContainer = ref<HTMLElement | null>(null)
 const isSidebarOpen = ref(false)
+let workspaceInitialized = false
+let applyingHistoryTarget = false
+
+const workspaceHrefMatches = (href: string) =>
+  new URL(href).toString() === new URL(window.location.href).toString()
+
+const syncConversationUrl = (mode: 'push' | 'replace' = 'push') => {
+  const href = buildWorkspaceHref({
+    view: 'conversation',
+    sessionId: currentSession.value?.session_id,
+  })
+  if (workspaceHrefMatches(href)) return
+  const method = mode === 'push' ? 'pushState' : 'replaceState'
+  window.history[method](window.history.state, '', href)
+}
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -255,6 +276,15 @@ watch(
       void scrollToBottom()
     }
   }
+)
+
+watch(
+  () => [activeTab.value, currentSession.value?.session_id || null] as const,
+  ([tab]) => {
+    if (!workspaceInitialized || applyingHistoryTarget || tab !== 'chat') return
+    syncConversationUrl()
+  },
+  { flush: 'post' }
 )
 
 const handleGlobalShortcut = (event: KeyboardEvent) => {
@@ -316,14 +346,49 @@ const initializeWorkspace = async () => {
   } else if (target.view === 'library') {
     activeTab.value = 'book'
   }
+
+  workspaceInitialized = true
+  if (!target.view || target.view === 'conversation') {
+    syncConversationUrl('replace')
+  }
+}
+
+const applyHistoryTarget = async () => {
+  const target = readWorkspaceTarget()
+  applyingHistoryTarget = true
+  try {
+    if (target.sessionId && target.sessionId !== currentSession.value?.session_id) {
+      await store.selectSession(target.sessionId)
+    } else if (!target.sessionId && (!target.view || target.view === 'conversation')) {
+      store.newSession()
+    }
+
+    if (target.view === 'details' && target.messageId) {
+      store.openAgentStateForMessage(target.messageId)
+    } else if (target.view === 'knowledge' && target.nodeId) {
+      if (target.nodeId !== currentNode.value?.id) await store.selectNode(target.nodeId)
+      activeTab.value = 'knowledge'
+    } else if (target.view === 'library') {
+      activeTab.value = 'book'
+    } else {
+      activeTab.value = 'chat'
+    }
+  } finally {
+    await nextTick()
+    applyingHistoryTarget = false
+  }
 }
 
 onMounted(() => {
   void initializeWorkspace()
   document.addEventListener('keydown', handleGlobalShortcut)
+  window.addEventListener('popstate', applyHistoryTarget)
 })
 
-onBeforeUnmount(() => document.removeEventListener('keydown', handleGlobalShortcut))
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleGlobalShortcut)
+  window.removeEventListener('popstate', applyHistoryTarget)
+})
 
 const showConversations = () => {
   activeTab.value = 'chat'
@@ -333,6 +398,13 @@ const showConversations = () => {
 const showLibrary = () => {
   activeTab.value = 'book'
   isSidebarOpen.value = false
+  const href = buildWorkspaceHref({
+    view: 'library',
+    sessionId: currentSession.value?.session_id,
+  })
+  if (!workspaceHrefMatches(href)) {
+    window.history.pushState(window.history.state, '', href)
+  }
 }
 
 const startNewInquiry = () => {

@@ -61,6 +61,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const currentSession = ref<Session | null>(null);
   const currentNode = ref<KnowledgeNode | null>(null);
   const loading = ref(false);
+  const askInFlight = ref(false);
   const explorerBusy = ref(false);
   const errorMessage = ref<string | null>(null);
   const credentials = ref<CredentialSummary[]>([]);
@@ -86,6 +87,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let knowledgeJobPollToken = 0;
   let standaloneKnowledgeJobPollToken = 0;
   let agentStateRequestToken = 0;
+  let askAbortController: AbortController | null = null;
+  let currentAskRequestId: string | null = null;
+
+  function nextAskRequestId(): string {
+    return globalThis.crypto?.randomUUID?.()
+      ?? `ask-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'AbortError';
+  }
 
   const configuredModelProfiles = computed<ConfiguredModelProfile[]>(() => {
     const profiles: ConfiguredModelProfile[] = [];
@@ -911,10 +923,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function ask(question: string) {
+    if (askInFlight.value) return;
     cancelKnowledgeJobPolling();
     loading.value = true;
+    askInFlight.value = true;
     errorMessage.value = null;
     agentRunSteps.value = [];
+    const abortController = new AbortController();
+    const requestId = nextAskRequestId();
+    askAbortController = abortController;
+    currentAskRequestId = requestId;
     const previousSession = currentSession.value ? { ...currentSession.value } : null;
     currentSession.value = ensureStreamingSession(question);
     const creatingSession = currentSession.value.session_id === undefined;
@@ -935,6 +953,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const streamCallbacks = {
         onChunk: appendStreamingChunk,
         onProgress: applyAgentProgress,
+        requestId,
+        signal: abortController.signal,
       };
       const askArguments = [
         question,
@@ -949,6 +969,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const response = targetFolderId
         ? await api.askStream(...askArguments, targetFolderId)
         : await api.askStream(...askArguments);
+      if (abortController.signal.aborted) {
+        const abortError = new Error('Question generation cancelled');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }
       const latestAssistant = latestAssistantMessage(response.session);
       const responseAnchors =
         response.answer.anchors !== undefined
@@ -991,11 +1016,30 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       void fetchAgentState(response.session.session_id);
     } catch (error) {
       currentSession.value = previousSession;
-      errorMessage.value = 'Failed to send message. Check your provider settings and try again.';
-      console.error('Failed to ask question:', error);
+      if (isAbortError(error)) {
+        draftQuestion.value = question;
+        errorMessage.value = 'Generation stopped.';
+      } else {
+        errorMessage.value = 'Failed to send message. Check your provider settings and try again.';
+        console.error('Failed to ask question:', error);
+      }
     } finally {
+      if (askAbortController === abortController) {
+        askAbortController = null;
+        currentAskRequestId = null;
+      }
+      askInFlight.value = false;
       loading.value = false;
     }
+  }
+
+  function cancelAsk() {
+    if (!askAbortController || !currentAskRequestId) return;
+    const requestId = currentAskRequestId;
+    askAbortController.abort();
+    void api.cancelAsk(requestId).catch((error) => {
+      console.error('Failed to cancel question generation on the server:', error);
+    });
   }
 
   async function regenerate(messageId: string) {
@@ -1388,6 +1432,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentSession,
     currentNode,
     loading,
+    askInFlight,
     explorerBusy,
     errorMessage,
     credentials,
@@ -1441,6 +1486,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectSession,
     selectNode,
     ask,
+    cancelAsk,
     regenerate,
     setConversationBaseFolder,
     newSession,

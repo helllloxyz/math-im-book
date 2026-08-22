@@ -31,6 +31,10 @@ from math_im_book.storage.sessions import clear_provider_response, remember_prov
 from math_im_book.storage.user_profile import FileUserProfileRepository
 
 
+class QuestionCancelledError(Exception):
+    """Raised when a user stops an in-flight question."""
+
+
 class KnowledgeOrchestrator:
     def __init__(
         self,
@@ -85,7 +89,18 @@ class KnowledgeOrchestrator:
         stream_callback: Callable[[str], None] | None = None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
         knowledge_approval_policy: str = "agent_decides",
+        cancel_check: Callable[[], bool] | None = None,
     ) -> AskResult:
+        self._raise_if_cancelled(cancel_check)
+
+        def guarded_stream_callback(delta: str) -> None:
+            self._raise_if_cancelled(cancel_check)
+            if stream_callback is not None:
+                stream_callback(delta)
+
+        resolved_stream_callback = (
+            guarded_stream_callback if stream_callback is not None else None
+        )
         clear_provider_response()
         self._emit_progress(
             progress_callback,
@@ -124,6 +139,7 @@ class KnowledgeOrchestrator:
                 else {}
             ),
         )
+        self._raise_if_cancelled(cancel_check)
         self._emit_progress(
             progress_callback,
             stage="organizing",
@@ -220,7 +236,7 @@ class KnowledgeOrchestrator:
                 strategy_instructions=strategy_instructions,
                 knowledge_references=selected_nodes,
                 answer_style_instructions=answer_style_instructions,
-                stream_callback=stream_callback,
+                stream_callback=resolved_stream_callback,
             )
             return AskResult(
                 action=action,
@@ -257,7 +273,7 @@ class KnowledgeOrchestrator:
                 strategy_instructions=strategy_instructions,
                 knowledge_references=selected_nodes,
                 answer_style_instructions=answer_style_instructions,
-                stream_callback=stream_callback,
+                stream_callback=resolved_stream_callback,
             )
             return AskResult(
                 action=action,
@@ -284,6 +300,7 @@ class KnowledgeOrchestrator:
             )
 
         if action.action_type == "expand_with_drafts" and action.draft_requests:
+            self._raise_if_cancelled(cancel_check)
             draft_title = action.draft_requests[0].title
             self._emit_progress(
                 progress_callback,
@@ -334,6 +351,7 @@ class KnowledgeOrchestrator:
                 symbol_conflicts=scope_symbol_context.conflicts,
                 run_inline=True,
             )
+            self._raise_if_cancelled(cancel_check)
             draft_anchors = list(job.anchors)
             compiled_nodes = [
                 self.repository.get_node(anchor.node_id)
@@ -396,7 +414,7 @@ class KnowledgeOrchestrator:
                 strategy_instructions=strategy_instructions,
                 knowledge_references=answer_nodes,
                 answer_style_instructions=answer_style_instructions,
-                stream_callback=stream_callback,
+                stream_callback=resolved_stream_callback,
             )
             return AskResult(
                 action=action,
@@ -433,7 +451,7 @@ class KnowledgeOrchestrator:
             strategy_instructions=strategy_instructions,
             knowledge_references=selected_nodes,
             answer_style_instructions=answer_style_instructions,
-            stream_callback=stream_callback,
+            stream_callback=resolved_stream_callback,
         )
         return AskResult(
             action=action,
@@ -741,6 +759,13 @@ class KnowledgeOrchestrator:
             provider_result.raw_response_meta,
         )
         return provider_result.output_text
+
+    @staticmethod
+    def _raise_if_cancelled(
+        cancel_check: Callable[[], bool] | None,
+    ) -> None:
+        if cancel_check is not None and cancel_check():
+            raise QuestionCancelledError("Question generation cancelled")
 
     @staticmethod
     def _merge_unique_nodes(*groups: list[KnowledgeNode]) -> list[KnowledgeNode]:

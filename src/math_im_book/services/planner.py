@@ -263,11 +263,23 @@ class QuestionPlanner:
         return selected_node_ids
 
     def _validated_confidence(self, value: object) -> float:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise PlannerOutputError("Planner provider returned invalid confidence")
-        confidence = float(value)
+        # Confidence only controls how conservatively we authorize downstream
+        # knowledge writes.  A provider occasionally serializes a number as a
+        # string (or omits it); that should not prevent the user from receiving
+        # an answer.  Invalid values therefore degrade to the safest value.
+        if isinstance(value, bool):
+            return 0.0
+        if isinstance(value, str):
+            try:
+                confidence = float(value.strip())
+            except ValueError:
+                return 0.0
+        elif isinstance(value, (int, float)):
+            confidence = float(value)
+        else:
+            return 0.0
         if not math.isfinite(confidence):
-            raise PlannerOutputError("Planner provider returned invalid confidence")
+            return 0.0
         return max(0.0, min(1.0, confidence))
 
     def _validated_candidate_drafts(
@@ -394,6 +406,8 @@ class QuestionPlanner:
             "Prefer the new keys route, intent, persistence_decision, confidence, "
             "selected_node_ids, detected_scope_ids, profile_layers_used, "
             "profile_context_summary, candidate_drafts, user_visible_summary. "
+            "confidence must be a JSON number between 0 and 1, for example 0.75; "
+            "never return it as a string, boolean, or null. "
             "route must be one of: answer_only, reuse_answer, answer_then_suggest_drafts, "
             "draft_first_then_answer, ask_before_persist, clarify_first, compact_then_answer. "
             "detected_scope_ids must only include scopes visible in supplied context; use [] if uncertain. "

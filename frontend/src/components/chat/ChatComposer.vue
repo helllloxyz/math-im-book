@@ -5,10 +5,12 @@ import { useWorkspaceStore } from '../../stores/workspace'
 
 const props = defineProps<{
   loading?: boolean
+  canCancel?: boolean
 }>()
 
 const emit = defineEmits<{
   (event: 'ask', question: string): void
+  (event: 'cancel'): void
 }>()
 
 const store = useWorkspaceStore()
@@ -90,6 +92,17 @@ const handleKeydown = (event: KeyboardEvent) => {
           @keydown="handleKeydown"
         ></textarea>
         <button
+          v-if="canCancel"
+          class="send-button stop-button"
+          type="button"
+          aria-label="Stop generating"
+          title="Stop generating"
+          @click="emit('cancel')"
+        >
+          <span class="stop-symbol" aria-hidden="true"></span>
+        </button>
+        <button
+          v-else
           class="send-button"
           type="button"
           :disabled="!draftQuestion.trim() || loading"
@@ -243,6 +256,23 @@ textarea::placeholder {
 
 .send-button .material-symbols-outlined {
   font-size: 18px;
+}
+
+.stop-button {
+  color: var(--color-on-surface);
+  background: color-mix(in srgb, var(--color-error, #ba1a1a) 14%, transparent);
+  box-shadow: none;
+}
+
+.stop-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error, #ba1a1a) 22%, transparent);
+}
+
+.stop-symbol {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: currentColor;
 }
 
 .composer-controls {

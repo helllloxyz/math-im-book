@@ -619,6 +619,64 @@ describe('App new session flow', () => {
     await vi.waitFor(() => expect(scroll.scrollTop).toBe(0));
   });
 
+  it('keeps the active conversation addressable in the URL', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    mockStartupFetches(store);
+
+    mount(App, { global: { plugins: [pinia] } });
+    await vi.waitFor(() => {
+      expect(new URL(window.location.href).searchParams.get('view')).toBe('conversation');
+    });
+
+    store.currentSession = {
+      session_id: 'chat-url-target',
+      title: 'Addressable conversation',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [],
+    } as any;
+
+    await vi.waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.get('view')).toBe('conversation');
+      expect(url.searchParams.get('session')).toBe('chat-url-target');
+    });
+  });
+
+  it('restores the conversation identified by browser history', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useWorkspaceStore();
+    mockStartupFetches(store);
+    const selectSessionSpy = vi.spyOn(store, 'selectSession').mockImplementation(async (sessionId) => {
+      store.currentSession = {
+        session_id: sessionId,
+        title: 'History target',
+        branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+        messages: [],
+      } as any;
+    });
+
+    mount(App, { global: { plugins: [pinia] } });
+    await vi.waitFor(() => {
+      expect(new URL(window.location.href).searchParams.get('view')).toBe('conversation');
+    });
+
+    window.history.replaceState(
+      window.history.state,
+      '',
+      '/?view=conversation&session=chat-from-history'
+    );
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    await vi.waitFor(() => {
+      expect(selectSessionSpy).toHaveBeenCalledWith('chat-from-history');
+      expect(store.currentSession?.session_id).toBe('chat-from-history');
+      expect(store.activeTab).toBe('chat');
+    });
+  });
+
   it('keeps scrolling to the bottom for new content in the open conversation', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);

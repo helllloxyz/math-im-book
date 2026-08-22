@@ -134,6 +134,39 @@ describe('api.askStream', () => {
     });
     expect(onChunk).toHaveBeenCalledWith('Answer');
   });
+
+  it('attaches the cancellation id and abort signal to a stream request', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      streamResponse([
+        'event: final\r\n',
+        'data: {"answer":{"assistant_text":"ok"},"session":{"messages":[],"branch":{"active_node_ids":[],"summary_node_ids":[],"active_symbols":{}}}}\r\n\r\n',
+      ])
+    );
+    const controller = new AbortController();
+
+    await api.askStream('Explain this', undefined, undefined, undefined, undefined, {
+      requestId: 'ask-123',
+      signal: controller.signal,
+    });
+
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(JSON.parse(String((init as RequestInit).body)).request_id).toBe('ask-123');
+    expect((init as RequestInit).signal).toBe(controller.signal);
+  });
+
+  it('requests cancellation for the encoded question id', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+    } as Response);
+
+    await api.cancelAsk('ask/123');
+
+    expect(fetchSpy).toHaveBeenCalledWith('/api/ask/ask%2F123/cancel', {
+      method: 'POST',
+      keepalive: true,
+    });
+  });
 });
 
 describe('api explorer client', () => {
