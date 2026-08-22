@@ -591,13 +591,68 @@ def test_orchestrator_requests_approval_for_multiple_draft_candidates(tmp_path) 
     )
 
     assert result.action.action_type == "ask_before_persist"
-    assert result.answer.assistant_text == "Answer while approval is pending."
+    assert result.answer.assistant_text == (
+        "知识点计划已就绪，等待你的批准。批准后会先生成知识点，"
+        "再基于这些知识点回答。"
+    )
     assert result.answer.knowledge_job_id is None
     assert result.created_node_ids == []
     assert result.orchestration_plan.route == "ask_before_persist"
     assert result.orchestration_plan.authorization.status == "pending"
     assert result.orchestration_plan.authorization.risk_level == "medium"
     assert knowledge_jobs.list_jobs() == []
+    assert len(gateway.requests) == 1
+
+
+def test_orchestrator_does_not_answer_when_required_knowledge_compile_fails(
+    tmp_path,
+) -> None:
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    gateway = SequenceProviderGateway(
+        [
+            ProviderResult(
+                output_text=(
+                    '{"route":"draft_first_then_answer",'
+                    '"intent":"definition","persistence_decision":"persist_first",'
+                    '"confidence":0.91,"selected_node_ids":[],'
+                    '"detected_scope_ids":[],"profile_layers_used":[],'
+                    '"profile_context_summary":null,'
+                    '"candidate_drafts":[{"title":"Kernel",'
+                    '"draft_type":"missing_definition",'
+                    '"reason":"Need a definition."}],'
+                    '"user_visible_summary":"Prepare knowledge first."}'
+                ),
+                provider_name="gemini",
+            ),
+            ProviderResult(
+                output_text="not valid knowledge JSON",
+                provider_name="gemini",
+            ),
+            ProviderResult(
+                output_text="This answer must not be generated.",
+                provider_name="gemini",
+            ),
+        ]
+    )
+    orchestrator = KnowledgeOrchestrator(
+        repository=repository,
+        planner=QuestionPlanner(provider_gateway=gateway),
+        provider_gateway=gateway,
+        knowledge_job_repository=InMemoryKnowledgeJobRepository(
+            repository,
+            auto_start=False,
+        ),
+    )
+
+    result = orchestrator.answer(
+        "What is a kernel?",
+        provider_profile=_provider_profile(),
+        strategy_agent_id="top-down",
+    )
+
+    assert "尚未生成回答" in result.answer.assistant_text
+    assert result.answer.anchors[0].status == "failed"
+    assert len(gateway.requests) == 2
 
 
 def test_orchestrator_renders_empty_reuse_answer_without_knowledge_job(tmp_path) -> None:
@@ -677,12 +732,13 @@ def test_raw_mode_suggests_drafts_without_starting_knowledge_job(tmp_path) -> No
     assert result.action.action_type == "ask_before_persist"
     assert result.answer.knowledge_job_id is None
     assert result.answer.anchors == []
-    assert result.answer.assistant_text == "线性代数研究线性结构。"
+    assert "等待你的批准" in result.answer.assistant_text
     assert result.state_items[0].state == "suggested"
     assert result.state_items[0].title == "Vector Space"
     assert result.orchestration_plan.route == "ask_before_persist"
     assert result.orchestration_plan.detected_scope_ids == ["linear-algebra"]
     assert result.orchestration_plan.authorization.status == "pending"
+    assert len(gateway.requests) == 1
 
 
 def test_top_down_promotes_suggested_drafts_to_compile_first(tmp_path) -> None:

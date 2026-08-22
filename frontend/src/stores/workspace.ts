@@ -384,7 +384,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         currentSession.value = applyAnchorsToSession(currentSession.value, messageId, job.anchors);
         void fetchAgentState(sessionId);
       }
+      const deferredMessage = currentSession.value?.messages.find(
+        (message) => message.message_id === messageId
+      );
+      const shouldLoadDeferredAnswer =
+        deferredMessage?.assistant_context.orchestration_plan?.route === 'ask_before_persist' &&
+        deferredMessage.assistant_context.orchestration_plan.authorization?.status === 'approved';
       if (knowledgeJobFailed(job.status, job.anchors)) {
+        if (shouldLoadDeferredAnswer && currentSession.value?.session_id === sessionId) {
+          const refreshedSession = await api.getSession(sessionId);
+          if (token !== knowledgeJobPollToken) return;
+          if (currentSession.value?.session_id === sessionId) {
+            currentSession.value = refreshedSession;
+          }
+        }
         errorMessage.value = job.error_message
           ? `Knowledge note failed to save: ${job.error_message}`
           : 'Knowledge note failed to save.';
@@ -397,6 +410,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           void pollKnowledgeJob(jobId, sessionId, messageId, token, attempt + 1);
         }, KNOWLEDGE_JOB_POLL_INTERVAL_MS);
       } else {
+        if (shouldLoadDeferredAnswer && currentSession.value?.session_id === sessionId) {
+          const refreshedSession = await api.getSession(sessionId);
+          if (token !== knowledgeJobPollToken) return;
+          if (currentSession.value?.session_id === sessionId) {
+            currentSession.value = refreshedSession;
+          }
+        }
         await fetchOutline();
         await fetchSessions();
       }

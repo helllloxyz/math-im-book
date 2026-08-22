@@ -1213,6 +1213,35 @@ describe('workspace store provider configuration', () => {
         },
       ],
     } as any);
+    vi.mocked(api.getSession).mockResolvedValue({
+      session_id: 'chat-1',
+      branch: { active_node_ids: [], summary_node_ids: [], active_symbols: {} },
+      messages: [
+        {
+          message_id: 'msg-a',
+          role: 'assistant',
+          content: '核刻画了线性映射失去的信息。[K1]',
+          assistant_context: {
+            referenced_node_ids: ['kernel'],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [
+              {
+                anchor_id: 'kernel',
+                label: 'Kernel',
+                status: 'ready',
+                node_id: 'kernel',
+              },
+            ],
+            orchestration_plan: {
+              route: 'draft_first_then_answer',
+              authorization: { status: 'approved' },
+            },
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      ],
+    } as any);
     const store = useWorkspaceStore();
     store.currentSession = {
       session_id: 'chat-1',
@@ -1227,6 +1256,13 @@ describe('workspace store provider configuration', () => {
             symbol_conflicts: [],
             alignment_notes: [],
             anchors: [],
+            orchestration_plan: {
+              route: 'ask_before_persist',
+              candidate_drafts: [
+                { title: 'Kernel', draft_type: 'definition', reason: 'Needed.' },
+              ],
+              authorization: { status: 'pending' },
+            },
           },
           created_at: '2026-04-02T09:00:01Z',
         },
@@ -1250,6 +1286,13 @@ describe('workspace store provider configuration', () => {
       status: 'ready',
       node_id: 'kernel',
     });
+    expect(api.getSession).toHaveBeenCalledWith('chat-1');
+    expect(store.currentSession?.messages[0].content).toBe(
+      '核刻画了线性映射失去的信息。[K1]'
+    );
+    expect(store.currentSession?.messages[0].assistant_context.referenced_node_ids).toEqual([
+      'kernel',
+    ]);
     expect(api.getOutline).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();

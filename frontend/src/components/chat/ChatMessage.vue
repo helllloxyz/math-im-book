@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { AgentProgressEvent, KnowledgeAnchor, OutlineNode, SessionMessage } from '../../services/api'
-import { extractMarkdownHeadings } from '../../services/markdown'
+import { extractMarkdownHeadings, splitMarkdownByCitations } from '../../services/markdown'
 import { buildWorkspaceHref } from '../../services/workspaceNavigation'
 import MarkdownContent from '../common/MarkdownContent.vue'
+import InlineKnowledgeCitation from './InlineKnowledgeCitation.vue'
 
 const props = defineProps<{
   message: SessionMessage
@@ -80,6 +81,11 @@ const knowledgeAuthorization = computed(() => {
   }
   return null
 })
+const shouldShowKnowledgeAuthorization = computed(
+  () =>
+    knowledgeGapCandidates.value.length > 0 &&
+    knowledgeAuthorization.value?.status === 'pending'
+)
 const knowledgeGapTitle = computed(() => {
   const status = knowledgeAuthorization.value?.status
   if (status === 'auto_approved') return 'Agent 已自动处理知识补充'
@@ -125,17 +131,34 @@ const isAssistant = computed(() => props.message.role === 'assistant')
 const roleLabel = computed(() => (isAssistant.value ? props.assistantName || 'Gauss' : 'You'))
 const questionPreview = computed(() => props.message.content.replace(/\s+/g, ' ').trim())
 const answerOutline = computed(() => extractMarkdownHeadings(props.message.content))
+const answerCitationSections = computed(() =>
+  splitMarkdownByCitations(props.message.content, referencedNodes.value.length)
+)
 const answerContentId = computed(
   () => `answer-${props.message.message_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 )
 const questionContentId = computed(
   () => `question-${props.message.message_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 )
+const isDeferredAnswerPending = computed(
+  () =>
+    isAssistant.value &&
+    agentPlan.value?.route === 'ask_before_persist' &&
+    knowledgeAuthorization.value?.status === 'approved' &&
+    assistantAnchors.value.some((anchor) =>
+      ['pending', 'queued', 'running'].includes(anchor.status)
+    )
+)
 const isThinking = computed(
   () =>
     isAssistant.value &&
-    !props.message.content.trim() &&
-    (props.isLoading || props.message.message_id === 'streaming-assistant')
+    (
+      isDeferredAnswerPending.value ||
+      (
+        !props.message.content.trim() &&
+        (props.isLoading || props.message.message_id === 'streaming-assistant')
+      )
+    )
 )
 
 const canOpenAnchor = (anchor: KnowledgeAnchor) => anchor.status === 'ready' && !!anchor.node_id
@@ -298,11 +321,31 @@ const copyContent = async () => {
             <em>正在启动任务</em>
           </div>
         </div>
-        <MarkdownContent v-else :content="message.content" />
+        <template v-else>
+          <template
+            v-for="(section, sectionIndex) in answerCitationSections"
+            :key="`${message.message_id}-section-${sectionIndex}`"
+          >
+            <MarkdownContent v-if="section.content" :content="section.content" />
+            <div
+              v-if="section.citationIndexes.length"
+              class="inline-knowledge-citations"
+              data-knowledge-citations
+            >
+              <InlineKnowledgeCitation
+                v-for="citationIndex in section.citationIndexes"
+                :key="referencedNodes[citationIndex].node_id"
+                :citation-index="citationIndex"
+                :node="referencedNodes[citationIndex]"
+                :href="citationHref(referencedNodes[citationIndex].node_id)"
+              />
+            </div>
+          </template>
+        </template>
       </div>
 
       <section
-        v-if="isAssistant && knowledgeGapCandidates.length && knowledgeAuthorization"
+        v-if="isAssistant && shouldShowKnowledgeAuthorization && knowledgeAuthorization"
         v-show="!isAnswerCollapsed"
         class="knowledge-gap-card"
         :class="`is-${knowledgeAuthorization.status}`"
@@ -362,34 +405,6 @@ const copyContent = async () => {
           </div>
         </footer>
       </section>
-
-      <div
-        v-if="isAssistant && referencedNodes.length"
-        v-show="!isAnswerCollapsed"
-        class="knowledge-citations"
-        data-knowledge-citations
-      >
-        <div class="citation-heading">
-          <span>本轮引用</span>
-          <small>{{ referencedNodes.length }} 个知识点 · 点击查看完整内容</small>
-        </div>
-        <a
-          v-for="(citation, index) in referencedNodes"
-          :key="citation.node_id"
-          :data-citation-node-id="citation.node_id"
-          :href="citationHref(citation.node_id)"
-          target="_blank"
-          rel="noopener noreferrer"
-          :aria-label="`Open ${citation.title} in a new tab`"
-        >
-          <span class="citation-index">K{{ index + 1 }}</span>
-          <span class="citation-copy">
-            <strong>{{ citation.title }}</strong>
-            <small>{{ citation.summary }}</small>
-          </span>
-          <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-        </a>
-      </div>
 
       <div
         v-if="isAssistant && knowledgeChangeAnchors.length"
@@ -1019,92 +1034,10 @@ const copyContent = async () => {
   font-size: 13px;
 }
 
-.knowledge-citations {
+.inline-knowledge-citations {
   display: grid;
   gap: 6px;
-  margin-top: 14px;
-  padding-top: 11px;
-  border-top: 1px solid rgb(var(--color-on-surface-rgb) / 0.075);
-  font-family: var(--font-sans);
-}
-
-.citation-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--color-on-surface-variant);
-}
-
-.citation-heading span {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.citation-heading small {
-  font-size: 9px;
-}
-
-.knowledge-citations > a {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 8px 9px;
-  border: 1px solid rgb(var(--color-on-surface-rgb) / 0.065);
-  border-radius: 9px;
-  color: var(--color-on-surface);
-  background: var(--color-surface-container-lowest);
-  text-align: left;
-  text-decoration: none;
-}
-
-.knowledge-citations > a:hover,
-.knowledge-citations > a:focus-visible {
-  border-color: rgb(var(--color-primary-rgb) / 0.24);
-  background: var(--color-primary-fixed);
-}
-
-.citation-index {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  place-items: center;
-  border-radius: 7px;
-  color: var(--color-primary);
-  background: var(--color-primary-fixed);
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.citation-copy {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.citation-copy strong {
-  overflow: hidden;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.citation-copy small {
-  overflow: hidden;
-  color: var(--color-on-surface-variant);
-  font-size: 10px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.knowledge-citations .material-symbols-outlined {
-  color: var(--color-on-surface-variant);
-  font-size: 16px;
+  margin: 8px 0 13px;
 }
 
 .knowledge-links {

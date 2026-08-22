@@ -16,6 +16,11 @@ export interface MarkdownHeading {
   text: string;
 }
 
+export interface MarkdownCitationSection {
+  content: string;
+  citationIndexes: number[];
+}
+
 // CommonMark does not treat `**术语（Term）**在……` as strong emphasis because
 // the closing delimiter sits between punctuation and a CJK character. Accept
 // that common Chinese writing pattern without requiring a visible space.
@@ -114,4 +119,74 @@ export function extractMarkdownHeadings(content: string): MarkdownHeading[] {
   });
 
   return headings;
+}
+
+export function splitMarkdownByCitations(
+  content: string,
+  citationCount: number
+): MarkdownCitationSection[] {
+  const source = content || '';
+  if (!source) return [{ content: '', citationIndexes: [] }];
+  if (citationCount <= 0) return [{ content: source, citationIndexes: [] }];
+
+  const lines = source.split('\n');
+  const tokens = markdown.parse(source, {});
+  const rootBlocks = tokens.filter(
+    (token) => token.level === 0 && token.map && token.map[1] > token.map[0]
+  );
+  const placed = new Set<number>();
+  const sections: MarkdownCitationSection[] = [];
+  let sectionStart = 0;
+
+  for (const block of rootBlocks) {
+    const [blockStart, blockEnd] = block.map!;
+    const citationIndexes: number[] = [];
+    const inlineTokens = tokens.filter(
+      (token) =>
+        token.type === 'inline' &&
+        token.map &&
+        token.map[0] >= blockStart &&
+        token.map[1] <= blockEnd
+    );
+
+    for (const inlineToken of inlineTokens) {
+      const text = (inlineToken.children || [])
+        .filter((child) => child.type === 'text')
+        .map((child) => child.content)
+        .join('');
+      for (const match of text.matchAll(/\[K(\d+)\]/gi)) {
+        const citationIndex = Number.parseInt(match[1], 10) - 1;
+        if (
+          citationIndex >= 0 &&
+          citationIndex < citationCount &&
+          !placed.has(citationIndex)
+        ) {
+          placed.add(citationIndex);
+          citationIndexes.push(citationIndex);
+        }
+      }
+    }
+
+    if (!citationIndexes.length) continue;
+    sections.push({
+      content: lines.slice(sectionStart, blockEnd).join('\n'),
+      citationIndexes,
+    });
+    sectionStart = blockEnd;
+  }
+
+  if (sectionStart < lines.length || !sections.length) {
+    sections.push({
+      content: lines.slice(sectionStart).join('\n'),
+      citationIndexes: [],
+    });
+  }
+
+  const unplaced = Array.from({ length: citationCount }, (_, index) => index)
+    .filter((index) => !placed.has(index));
+  if (unplaced.length) {
+    sections[sections.length - 1].citationIndexes.push(...unplaced);
+  }
+
+  return sections;
 }

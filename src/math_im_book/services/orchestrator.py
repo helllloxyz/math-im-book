@@ -150,7 +150,7 @@ class KnowledgeOrchestrator:
                 repository=self.repository,
                 approval_policy=knowledge_approval_policy,
             )
-        action = self._apply_knowledge_authorization(action, strategy_mode)
+        action = self._apply_knowledge_authorization(action)
         plan = action.orchestration_plan
         strategy_instructions = self._strategy_instructions(strategy_mode)
         selected_nodes = [self.repository.get_node(node_id) for node_id in action.selected_node_ids]
@@ -172,10 +172,35 @@ class KnowledgeOrchestrator:
             symbols=symbol_context.symbols,
             conflicts=scope_symbol_context.conflicts,
         )
+        if action.action_type == "ask_before_persist":
+            summary = action.user_visible_reason or (
+                plan.user_visible_summary if plan else "Knowledge approval is required."
+            )
+            detail = (
+                "知识点计划已就绪，等待你的批准。批准后会先生成知识点，"
+                "再基于这些知识点回答。"
+            )
+            return AskResult(
+                action=action,
+                answer=AnswerPayload(
+                    summary=summary,
+                    detail=detail,
+                    references=[node.id for node in selected_nodes],
+                    anchors=[],
+                    symbols=symbol_context.symbols,
+                    symbol_conflicts=scope_symbol_context.conflicts,
+                    assistant_text=detail,
+                ),
+                drafts=[],
+                created_node_ids=[],
+                branch_context=selected_branch_context,
+                orchestration_plan=plan,
+                state_items=self._state_items_for_plan(plan),
+            )
+
         if action.action_type in {
             "answer_only",
             "answer_then_suggest_drafts",
-            "ask_before_persist",
             "clarify_first",
             "compact_then_answer",
         }:
@@ -327,16 +352,38 @@ class KnowledgeOrchestrator:
                 stage="compiling",
                 label=(
                     "知识节点已编译完成"
-                    if compiled_nodes
-                    else "知识节点编译未完成，将使用现有上下文"
+                    if job.status == "completed"
+                    else "知识节点编译失败，回答尚未生成"
                 ),
                 detail=(
                     f"生成 {len(compiled_nodes)} 个可引用节点"
-                    if compiled_nodes
+                    if job.status == "completed"
                     else job.error_message
                 ),
-                state="completed" if compiled_nodes else "failed",
+                state="completed" if job.status == "completed" else "failed",
             )
+            if job.status != "completed":
+                failure_detail = (
+                    "知识点生成失败，因此尚未生成回答。请重试知识点生成后再继续。"
+                )
+                return AskResult(
+                    action=action,
+                    answer=AnswerPayload(
+                        summary=answer_summary,
+                        detail=failure_detail,
+                        references=[node.id for node in selected_nodes],
+                        anchors=draft_anchors,
+                        knowledge_job_id=job.job_id,
+                        symbols=symbol_context.symbols,
+                        symbol_conflicts=scope_symbol_context.conflicts,
+                        assistant_text=failure_detail,
+                    ),
+                    drafts=action.draft_requests,
+                    created_node_ids=[node.id for node in compiled_nodes],
+                    branch_context=selected_branch_context,
+                    orchestration_plan=plan,
+                    state_items=self._state_items_for_plan(plan),
+                )
             self._emit_answering_progress(progress_callback)
             assistant_text = self._render_answer(
                 question=question,
@@ -406,6 +453,90 @@ class KnowledgeOrchestrator:
             state_items=self._state_items_for_plan(plan),
         )
 
+    def answer_from_knowledge(
+        self,
+        *,
+        question: str,
+        knowledge_node_ids: list[str],
+        session_id: str | None = None,
+        provider_profile: ProviderProfile | None = None,
+        branch_context: SessionBranchContext | None = None,
+        answer_style_id: str | None = None,
+        strategy_agent_id: str | None = None,
+        plan: OrchestrationPlan | None = None,
+    ) -> AnswerPayload:
+        """Generate a deferred answer after its knowledge nodes are ready."""
+        clear_provider_response()
+        knowledge_nodes: list[KnowledgeNode] = []
+        for node_id in knowledge_node_ids:
+            try:
+                knowledge_nodes.append(self.repository.get_node(node_id))
+            except FileNotFoundError:
+                continue
+
+        branch_symbols = dict(branch_context.active_symbols) if branch_context else {}
+        symbol_context = self.symbol_registry.build_context(
+            knowledge_nodes,
+            branch_symbols=branch_symbols,
+            include_local_symbols=True,
+        )
+        scope_nodes: list[KnowledgeNode] = []
+        if branch_context is not None:
+            for node_id in [
+                *branch_context.active_node_ids,
+                *branch_context.summary_node_ids,
+            ]:
+                try:
+                    scope_nodes.append(self.repository.get_node(node_id))
+                except FileNotFoundError:
+                    continue
+        scope_symbol_context = self.symbol_registry.build_context(
+            self._merge_unique_nodes(scope_nodes, knowledge_nodes),
+            branch_symbols=branch_symbols,
+        )
+        summary = (
+            plan.user_visible_summary
+            if plan is not None and plan.user_visible_summary
+            else "知识上下文已准备完成。"
+        )
+        detail = (
+            "已先生成并整理可复用知识点："
+            + "、".join(node.title for node in knowledge_nodes)
+            + "。请基于这些知识点回答，并在相关位置标注引用。"
+        )
+        detail = self._detail_with_symbol_guidance(
+            detail,
+            self._symbol_guidance_text(
+                symbols=symbol_context.symbols,
+                conflicts=scope_symbol_context.conflicts,
+            ),
+        )
+        strategy_mode = (
+            plan.strategy_mode
+            if plan is not None and plan.strategy_mode in {"top-down", "raw"}
+            else strategy_agent_id
+        )
+        assistant_text = self._render_answer(
+            question=question,
+            summary=summary,
+            detail=detail,
+            symbols=symbol_context.symbols,
+            symbol_conflicts=scope_symbol_context.conflicts,
+            session_id=session_id,
+            provider_profile=provider_profile,
+            strategy_instructions=self._strategy_instructions(strategy_mode),
+            knowledge_references=knowledge_nodes,
+            answer_style_instructions=self._answer_style_instructions(answer_style_id),
+        )
+        return AnswerPayload(
+            summary=summary,
+            detail=detail,
+            references=[node.id for node in knowledge_nodes],
+            symbols=symbol_context.symbols,
+            symbol_conflicts=scope_symbol_context.conflicts,
+            assistant_text=assistant_text,
+        )
+
     def _selected_branch_context(
         self,
         question: str,
@@ -466,7 +597,6 @@ class KnowledgeOrchestrator:
     @staticmethod
     def _apply_knowledge_authorization(
         action: AgentAction,
-        strategy_mode: str,
     ) -> AgentAction:
         """Apply the write policy before turning candidate gaps into durable nodes."""
         plan = action.orchestration_plan
@@ -481,10 +611,7 @@ class KnowledgeOrchestrator:
                 user_visible_reason=action.user_visible_reason,
                 orchestration_plan=plan,
             )
-        if (
-            strategy_mode != "top-down"
-            or action.action_type != "answer_then_suggest_drafts"
-        ):
+        if action.action_type == "expand_with_drafts":
             return action
         plan.route = "draft_first_then_answer"
         plan.persistence_decision = "persist_first"

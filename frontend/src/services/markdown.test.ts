@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractMarkdownHeadings, renderMarkdown } from './markdown';
+import {
+  extractMarkdownHeadings,
+  renderMarkdown,
+  splitMarkdownByCitations,
+} from './markdown';
 
 describe('renderMarkdown', () => {
   it('preserves escaped LaTeX delimiters for KaTeX auto-render', () => {
@@ -52,6 +56,30 @@ describe('extractMarkdownHeadings', () => {
   it('ignores heading-like text inside code blocks', () => {
     expect(extractMarkdownHeadings('```md\n# Not a section\n```\n\n## Real section')).toEqual([
       { level: 2, text: 'Real section' },
+    ]);
+  });
+});
+
+describe('splitMarkdownByCitations', () => {
+  it('places each citation immediately after the Markdown block that mentions it', () => {
+    expect(splitMarkdownByCitations(
+      '第一段使用定义。[K1]\n\n第二段继续推导。\n\n最后使用定理。[K2]',
+      2
+    )).toEqual([
+      { content: '第一段使用定义。[K1]', citationIndexes: [0] },
+      { content: '\n第二段继续推导。\n\n最后使用定理。[K2]', citationIndexes: [1] },
+    ]);
+  });
+
+  it('does not treat citation-like text in a code block as a reference', () => {
+    expect(splitMarkdownByCitations('```text\n[K1]\n```\n\n正文。', 1)).toEqual([
+      { content: '```text\n[K1]\n```\n\n正文。', citationIndexes: [0] },
+    ]);
+  });
+
+  it('keeps uncited referenced nodes available after the answer as a fallback', () => {
+    expect(splitMarkdownByCitations('正文没有显式标记。', 2)).toEqual([
+      { content: '正文没有显式标记。', citationIndexes: [0, 1] },
     ]);
   });
 });

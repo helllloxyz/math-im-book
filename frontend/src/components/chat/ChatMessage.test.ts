@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 
+import { api } from '../../services/api';
 import ChatMessage from './ChatMessage.vue';
 
 describe('ChatMessage anchors', () => {
@@ -608,7 +609,7 @@ describe('ChatMessage anchors', () => {
     expect(wrapper.emitted('reject-knowledge')?.[0]).toEqual(['msg-gap']);
   });
 
-  it('shows full-auto knowledge writes as audited actions without approval buttons', () => {
+  it('removes completed authorization cards from the conversation flow', () => {
     const wrapper = mount(ChatMessage, {
       props: {
         message: {
@@ -649,18 +650,82 @@ describe('ChatMessage anchors', () => {
       },
     });
 
-    expect(wrapper.get('[data-knowledge-gap-card]').text()).toContain('Full Auto · 已自动执行');
+    expect(wrapper.find('[data-knowledge-gap-card]').exists()).toBe(false);
     expect(wrapper.find('[data-approve-knowledge]').exists()).toBe(false);
     expect(wrapper.find('[data-reject-knowledge]').exists()).toBe(false);
   });
 
-  it('renders referenced knowledge as concise links to separate note pages', () => {
+  it('hides a user-approved authorization card while knowledge generation continues', () => {
+    const wrapper = mount(ChatMessage, {
+      props: {
+        message: {
+          message_id: 'msg-approved',
+          role: 'assistant',
+          content: '知识点准备完成后开始回答。',
+          assistant_context: {
+            referenced_node_ids: [],
+            symbol_conflicts: [],
+            alignment_notes: [],
+            anchors: [
+              { anchor_id: 'uniform-convergence', label: '一致收敛', status: 'pending' },
+            ],
+            orchestration_plan: {
+              route: 'ask_before_persist',
+              intent: 'definition',
+              persistence_decision: 'persist_first',
+              confidence: 0.72,
+              user_visible_summary: '需要补充知识点。',
+              detected_scope_ids: [],
+              profile_layers_used: [],
+              candidate_drafts: [
+                { title: '一致收敛', draft_type: 'definition', reason: '需要定义。' },
+              ],
+              strategy_mode: 'top-down',
+              strategy_reason: '先编译知识。',
+              knowledge_scope_label: '数学分析',
+              authorization: {
+                policy: 'always_ask',
+                mode: 'require_approval',
+                status: 'approved',
+                risk_level: 'medium',
+                operation: 'write_knowledge_nodes',
+                reason: '用户已允许。',
+              },
+            },
+          },
+          created_at: '2026-04-02T09:00:01Z',
+        },
+      },
+    });
+
+    expect(wrapper.find('[data-knowledge-gap-card]').exists()).toBe(false);
+    expect(wrapper.find('[data-thinking-indicator]').exists()).toBe(true);
+  });
+
+  it('renders referenced knowledge at its citation and loads full content on expansion', async () => {
+    const getNode = vi.spyOn(api, 'getNode').mockResolvedValue({
+      id: 'uniform-convergence',
+      title: '一致收敛',
+      type: 'definition',
+      summary: '在整个定义域上统一控制函数列与极限函数的误差。',
+      detail: '## 定义\n\n若误差上确界趋于零，则函数列一致收敛。',
+      source: 'agent',
+      references: [],
+      incoming_references: [],
+      related_session_ids: [],
+      references_display: [],
+      incoming_references_display: [],
+      related_discussions: [],
+      status: 'ready',
+      symbols: {},
+      revision: 1,
+    });
     const wrapper = mount(ChatMessage, {
       props: {
         message: {
           message_id: 'msg_with_knowledge',
           role: 'assistant',
-          content: '一致收敛解决了逐点收敛无法统一控制误差的问题。[K1]',
+          content: '一致收敛解决了逐点收敛无法统一控制误差的问题。[K1]\n\n下面继续说明应用。',
           assistant_context: {
             referenced_node_ids: ['uniform-convergence'],
             symbol_conflicts: [],
@@ -685,13 +750,29 @@ describe('ChatMessage anchors', () => {
     const citation = wrapper.get('[data-citation-node-id="uniform-convergence"]');
     expect(citation.text()).toContain('一致收敛');
     expect(citation.text()).toContain('统一控制');
-    expect(citation.element.tagName).toBe('A');
-    expect(citation.attributes('target')).toBe('_blank');
-    expect(citation.attributes('rel')).toBe('noopener noreferrer');
-    const target = new URL(citation.attributes('href')!);
+    expect(citation.element.tagName).toBe('DETAILS');
+    expect(citation.attributes('open')).toBeUndefined();
+    expect(getNode).not.toHaveBeenCalled();
+
+    const markdownBlocks = wrapper.findAll('.message-content > .markdown-content');
+    expect(markdownBlocks).toHaveLength(2);
+    expect(markdownBlocks[0].element.nextElementSibling?.contains(citation.element)).toBe(true);
+
+    (citation.element as HTMLDetailsElement).open = true;
+    await citation.trigger('toggle');
+    await flushPromises();
+
+    expect(getNode).toHaveBeenCalledWith('uniform-convergence');
+    expect(citation.get('[data-citation-detail]').text()).toContain('误差上确界趋于零');
+    const link = citation.get('a');
+    expect(link.attributes('target')).toBe('_blank');
+    expect(link.attributes('rel')).toBe('noopener noreferrer');
+    const target = new URL(link.attributes('href')!);
     expect(target.searchParams.get('view')).toBe('knowledge');
     expect(target.searchParams.get('session')).toBe('chat-1');
     expect(target.searchParams.get('node')).toBe('uniform-convergence');
+
+    getNode.mockRestore();
   });
 
   it('uses compact spacing for assistant controls, anchors, and agent feedback', () => {

@@ -799,6 +799,154 @@ def create_app(
             state="ready" if status == "completed" else "failed",
             error_message=getattr(job, "error_message", None),
         )
+        if status == "completed":
+            _complete_deferred_knowledge_answer(
+                session_id=session_id,
+                message_id=source_message_id,
+                anchors=list(getattr(job, "anchors", [])),
+            )
+        else:
+            _mark_deferred_knowledge_answer_failed(
+                session_id=session_id,
+                message_id=source_message_id,
+            )
+
+    def _mark_deferred_knowledge_answer_failed(
+        *,
+        session_id: str,
+        message_id: str,
+    ) -> None:
+        record = sessions.load_record(session_id)
+        if record is None:
+            return
+        updated_messages: list[SessionMessage] = []
+        changed = False
+        for message in record.messages:
+            plan = message.assistant_context.orchestration_plan
+            if (
+                message.message_id != message_id
+                or plan is None
+                or plan.route != "ask_before_persist"
+                or plan.authorization.status != "approved"
+            ):
+                updated_messages.append(message)
+                continue
+            updated_messages.append(
+                replace(
+                    message,
+                    content="知识点生成失败，因此尚未生成回答。请重试后再继续。",
+                )
+            )
+            changed = True
+        if changed:
+            sessions.save_record(replace(record, messages=updated_messages))
+
+    def _complete_deferred_knowledge_answer(
+        *,
+        session_id: str,
+        message_id: str,
+        anchors: list[AnswerAnchor],
+    ) -> None:
+        record = sessions.load_record(session_id)
+        if record is None:
+            return
+        message_index = next(
+            (
+                index
+                for index, item in enumerate(record.messages)
+                if item.message_id == message_id
+            ),
+            None,
+        )
+        if message_index is None:
+            return
+        message = record.messages[message_index]
+        plan = message.assistant_context.orchestration_plan
+        if (
+            message.role != "assistant"
+            or plan is None
+            or plan.route != "ask_before_persist"
+            or plan.authorization.status != "approved"
+        ):
+            return
+
+        question = next(
+            (
+                item.content
+                for item in reversed(record.messages[:message_index])
+                if item.role == "user"
+            ),
+            "",
+        )
+        if not question:
+            return
+        knowledge_node_ids = list(message.assistant_context.referenced_node_ids)
+        for anchor in anchors:
+            if anchor.status != "ready" or anchor.node_id is None:
+                continue
+            if anchor.node_id not in knowledge_node_ids:
+                knowledge_node_ids.append(anchor.node_id)
+        if not knowledge_node_ids:
+            return
+
+        provider_profile = (
+            record.provider_profile
+            or _resolve_provider_profile_from_selection(
+                selection=record.conversation_model,
+                credential_registry=credentials,
+                provider_options_payload=provider_options.load(),
+            )
+        )
+        completed_plan = replace(
+            plan,
+            route="draft_first_then_answer",
+            persistence_decision="persist_first",
+            authorization=replace(plan.authorization, status="approved"),
+        )
+        try:
+            answer = orchestrator.answer_from_knowledge(
+                question=question,
+                knowledge_node_ids=knowledge_node_ids,
+                session_id=session_id,
+                provider_profile=provider_profile,
+                branch_context=record.branch_context,
+                answer_style_id=record.default_answer_style_id,
+                strategy_agent_id=record.strategy_agent_id,
+                plan=completed_plan,
+            )
+        except Exception:
+            logger.exception(
+                "Deferred knowledge-first answer failed: session=%s message=%s",
+                safe_log_value(session_id),
+                safe_log_value(message_id),
+            )
+            failed_messages = list(record.messages)
+            failed_messages[message_index] = replace(
+                message,
+                content="知识点已经生成，但回答生成失败。请重试回答。",
+                assistant_context=replace(
+                    message.assistant_context,
+                    orchestration_plan=completed_plan,
+                ),
+            )
+            sessions.save_record(replace(record, messages=failed_messages))
+            return
+        completed_context = replace(
+            message.assistant_context,
+            action_type="expand_with_drafts",
+            referenced_node_ids=list(answer.references),
+            anchors=list(anchors),
+            symbol_conflicts=list(answer.symbol_conflicts),
+            orchestration_plan=completed_plan,
+        )
+        completed_message = replace(
+            message,
+            content=answer.assistant_text,
+            assistant_context=completed_context,
+        )
+        updated_messages = list(record.messages)
+        updated_messages[message_index] = completed_message
+        sessions.save_record(replace(record, messages=updated_messages))
 
     def _merge_job_anchors_into_session_message(
         *,
@@ -1297,6 +1445,22 @@ def create_app(
             message_id=message_id,
             authorization_status="denied",
         )
+        updated_messages = [
+            replace(
+                item,
+                content="已跳过知识点生成，因此本轮没有生成回答。",
+                assistant_context=replace(
+                    item.assistant_context,
+                    referenced_node_ids=[],
+                    anchors=[],
+                ),
+            )
+            if item.message_id == message_id
+            else item
+            for item in updated_record.messages
+        ]
+        updated_record = replace(updated_record, messages=updated_messages)
+        sessions.save_record(updated_record)
         return _record_to_session_schema(updated_record)
 
     @app.post(

@@ -253,6 +253,121 @@ def test_accept_suggested_drafts_queues_selected_drafts_and_persists_ready_links
     assert job_response.json()["anchors"][0]["node_id"] == "kernel"
 
 
+def test_approved_drafts_generate_knowledge_before_replacing_waiting_answer(
+    tmp_path,
+) -> None:
+    class KnowledgeFirstGateway:
+        def __init__(self) -> None:
+            self.purposes: list[str] = []
+
+        def generate(
+            self,
+            profile: ProviderProfile,
+            request: ProviderRequest,
+        ) -> ProviderResult:
+            self.purposes.append(request.purpose)
+            if request.purpose == "knowledge_compile":
+                return ProviderResult(
+                    output_text=(
+                        '{"summary":"核是映到零向量的所有向量。",'
+                        '"detail":"线性映射的核定义为 $\\\\ker T=\\\\{v:T(v)=0\\\\}$。"}'
+                    ),
+                    provider_name="test",
+                )
+            return ProviderResult(
+                output_text="核刻画了线性映射失去的信息。[K1]",
+                provider_name="test",
+            )
+
+    gateway = KnowledgeFirstGateway()
+    session_store = FileSessionStore(tmp_path / "sessions")
+    session_store.save_record(
+        SessionRecord(
+            session_id="chat-knowledge-first",
+            title="Kernel",
+            provider_profile=ProviderProfile(
+                provider_type="openai_compatible",
+                model="test-model",
+                credential_id="test",
+            ),
+            branch_context=SessionBranch(),
+            messages=[
+                SessionMessage(
+                    message_id="msg-question",
+                    role="user",
+                    content="什么是线性映射的核？",
+                ),
+                SessionMessage(
+                    message_id="msg-answer",
+                    role="assistant",
+                    content="知识点计划已就绪，等待你的批准。",
+                    assistant_context=SessionAssistantContext(
+                        action_type="ask_before_persist",
+                        orchestration_plan=OrchestrationPlan(
+                            route="ask_before_persist",
+                            intent="definition",
+                            persistence_decision="await_approval",
+                            confidence=0.72,
+                            user_visible_summary="先生成核的定义，再回答。",
+                            candidate_drafts=[
+                                KnowledgeDraftCandidate(
+                                    title="线性映射的核",
+                                    draft_type="definition",
+                                    reason="回答需要可复用定义。",
+                                )
+                            ],
+                            strategy_mode="top-down",
+                            authorization=KnowledgeAuthorizationDecision(
+                                mode="require_approval",
+                                status="pending",
+                                risk_level="medium",
+                                operation="write_knowledge_nodes",
+                                reason="需要用户确认。",
+                            ),
+                        ),
+                    ),
+                ),
+            ],
+        )
+    )
+    repository = MarkdownKnowledgeRepository(tmp_path / "knowledge")
+    knowledge_jobs = InMemoryKnowledgeJobRepository(
+        repository,
+        provider_gateway=gateway,
+        auto_start=False,
+    )
+    client = TestClient(
+        create_app(
+            repository=repository,
+            session_store=session_store,
+            provider_gateway=gateway,
+            knowledge_job_repository=knowledge_jobs,
+        )
+    )
+
+    response = client.post(
+        "/api/sessions/chat-knowledge-first/messages/msg-answer/suggested-drafts/compile",
+        json={"draft_indexes": [0]},
+    )
+
+    assert response.status_code == 200
+    waiting_record = session_store.load_record("chat-knowledge-first")
+    assert "等待你的批准" in waiting_record.messages[-1].content
+
+    knowledge_jobs.run_job(response.json()["job_id"])
+
+    completed_record = session_store.load_record("chat-knowledge-first")
+    completed_message = completed_record.messages[-1]
+    assert completed_message.content == "核刻画了线性映射失去的信息。[K1]"
+    assert completed_message.assistant_context.referenced_node_ids == ["线性映射的核"]
+    assert completed_message.assistant_context.action_type == "expand_with_drafts"
+    assert completed_message.assistant_context.orchestration_plan.route == (
+        "draft_first_then_answer"
+    )
+    assert repository.get_node("线性映射的核").status == "ready"
+    assert gateway.purposes == ["knowledge_compile", "answer"]
+
+
 def test_reject_suggested_drafts_persists_denial_without_writing_nodes(tmp_path) -> None:
     session_store = FileSessionStore(tmp_path / "sessions")
     session_store.save_record(
@@ -314,6 +429,9 @@ def test_reject_suggested_drafts_persists_denial_without_writing_nodes(tmp_path)
     context = response.json()["messages"][0]["assistant_context"]
     assert context["orchestration_plan"]["authorization"]["status"] == "denied"
     assert context["state_items"][0]["state"] == "dismissed"
+    assert response.json()["messages"][0]["content"] == (
+        "已跳过知识点生成，因此本轮没有生成回答。"
+    )
     assert repository.list_nodes() == []
 
 
